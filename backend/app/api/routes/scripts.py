@@ -189,3 +189,23 @@ async def get_scene_plan(thread_id: str):
         "scene_plan": plan.model_dump() if hasattr(plan, "model_dump") else plan,
         "status": state_values.get("status")
     }
+
+@router.get("/{thread_id}/prompts")
+async def get_prompts(thread_id: str):
+    config = {"configurable": {"thread_id": thread_id}}
+    state_snapshot = graph.get_state(config)
+    
+    if not state_snapshot or not state_snapshot.values:
+        raise HTTPException(status_code=404, detail="Analysis thread not found.")
+        
+    state_values = state_snapshot.values
+    prompt_set = state_values.get("prompt_set")
+    
+    if not prompt_set:
+        raise HTTPException(status_code=404, detail="Prompts not yet generated.")
+        
+    return {
+        "thread_id": thread_id,
+        "prompt_set": prompt_set.model_dump() if hasattr(prompt_set, "model_dump") else prompt_set,
+        "status": state_values.get("status")
+    }
