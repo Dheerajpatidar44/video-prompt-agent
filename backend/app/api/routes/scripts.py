@@ -18,7 +18,7 @@ class AnalyzeResponse(BaseModel):
     error: Optional[str] = None
 
 @router.post("/analyze", response_model=AnalyzeResponse)
-async def analyze_script_endpoint(
+def analyze_script_endpoint(
     text: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None)
 ):
@@ -36,7 +36,7 @@ async def analyze_script_endpoint(
             source_type = "pdf" if ext == ".pdf" else "txt"
             
             with tempfile.NamedTemporaryFile(delete=False, suffix=ext) as tmp:
-                content = await file.read()
+                content = file.file.read()
                 if len(content) == 0:
                     raise HTTPException(status_code=400, detail="Uploaded file is empty.")
                 tmp.write(content)
@@ -58,6 +58,7 @@ async def analyze_script_endpoint(
         raise HTTPException(status_code=500, detail=f"Internal server error during ingestion: {str(e)}")
 
     # Execute LangGraph workflow
+    print("DIAGNOSTIC: Entering graph execution")
     initial_state = {
         "project_id": script_doc.document_id,
         "original_script": script_doc.normalized_text,
@@ -66,9 +67,12 @@ async def analyze_script_endpoint(
     
     try:
         config = {"configurable": {"thread_id": script_doc.document_id}}
+        print("DIAGNOSTIC: graph.invoke starting")
         final_state = graph.invoke(initial_state, config)
+        print("DIAGNOSTIC: graph.invoke finished")
         
         if final_state.get("error"):
+            print("DIAGNOSTIC: graph returned error state")
             return AnalyzeResponse(
                 status="error",
                 script=script_doc.model_dump(),
@@ -94,7 +98,7 @@ async def analyze_script_endpoint(
         raise HTTPException(status_code=500, detail=f"Graph execution failed: {str(e)}")
 
 @router.get("/{thread_id}/questions")
-async def get_questions(thread_id: str):
+def get_questions(thread_id: str):
     config = {"configurable": {"thread_id": thread_id}}
     state_snapshot = graph.get_state(config)
     
@@ -117,7 +121,7 @@ class SubmitAnswersRequest(BaseModel):
     answers: list[Answer]
 
 @router.post("/{thread_id}/answers")
-async def submit_answers(thread_id: str, request: SubmitAnswersRequest):
+def submit_answers(thread_id: str, request: SubmitAnswersRequest):
     config = {"configurable": {"thread_id": thread_id}}
     state_snapshot = graph.get_state(config)
     
@@ -151,7 +155,7 @@ async def submit_answers(thread_id: str, request: SubmitAnswersRequest):
     }
 
 @router.get("/{thread_id}/video-specification")
-async def get_video_specification(thread_id: str):
+def get_video_specification(thread_id: str):
     config = {"configurable": {"thread_id": thread_id}}
     state_snapshot = graph.get_state(config)
     
@@ -171,7 +175,7 @@ async def get_video_specification(thread_id: str):
     }
 
 @router.get("/{thread_id}/scene-plan")
-async def get_scene_plan(thread_id: str):
+def get_scene_plan(thread_id: str):
     config = {"configurable": {"thread_id": thread_id}}
     state_snapshot = graph.get_state(config)
     
@@ -191,7 +195,7 @@ async def get_scene_plan(thread_id: str):
     }
 
 @router.get("/{thread_id}/prompts")
-async def get_prompts(thread_id: str):
+def get_prompts(thread_id: str):
     config = {"configurable": {"thread_id": thread_id}}
     state_snapshot = graph.get_state(config)
     

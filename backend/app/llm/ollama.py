@@ -38,12 +38,17 @@ class LLMService:
             raise LLMException(f"The configured local model '{self.model_name}' is not available. Install it in Ollama and try again.")
             
         try:
+            print("DIAGNOSTIC: starting chat call to Ollama")
             response = self.client.chat(
                 model=self.model_name,
                 messages=[{"role": "user", "content": prompt}],
                 format=schema.model_json_schema()
             )
+            print("DIAGNOSTIC: chat call finished")
             content = response["message"]["content"]
-            return schema.model_validate_json(content)
+            print("DIAGNOSTIC: starting pydantic validation")
+            result = schema.model_validate_json(content)
+            print("DIAGNOSTIC: pydantic validation finished")
+            return result
         except Exception as e:
             raise LLMException(f"Failed to generate structured output: {str(e)}")

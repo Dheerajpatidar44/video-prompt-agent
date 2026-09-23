@@ -9,7 +9,8 @@ def test_config_loads_defaults():
         if key in os.environ:
             del os.environ[key]
             
-    settings = Settings()
+    # Instantiate without loading from the .env file to test raw defaults
+    settings = Settings(_env_file=None)
     assert settings.app_name == "Video Prompt Agent"
     assert settings.app_env == "development"
     assert settings.ollama_model == "llama3"
