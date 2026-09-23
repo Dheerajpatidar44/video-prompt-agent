@@ -147,12 +147,23 @@ def test_graph_routing_terminates():
                 mock_analyze_instance = mock_llm_analyze.return_value
                 mock_analyze_instance.generate_structured.return_value = ScriptAnalysis(story_summary="Sum")
                 
-                from app.schemas.agent import QuestionGenerationResult
+                from app.schemas.agent import QuestionGenerationResult, Question, AnswerType
                 mock_ask_instance = mock_llm_ask.return_value
-                mock_ask_instance.generate_structured.return_value = QuestionGenerationResult(questions=[])
+                mock_ask_instance.generate_structured.return_value = QuestionGenerationResult(
+                    questions=[
+                        Question(
+                            id="q1",
+                            gap_ids=["g1"],
+                            question="Test question?",
+                            category="TEST",
+                            priority=Importance.CRITICAL,
+                            answer_type=AnswerType.TEXT
+                        )
+                    ]
+                )
                 
                 initial_state = {"project_id": "test-1", "original_script": "script content"}
                 final_state = graph.invoke(initial_state, config)
                 
-                # Since ASK_QUESTIONS branch placeholder exists and goes to END, it should complete.
-                assert final_state["status"] == "WAITING_FOR_USER" # ask_questions placeholder sets this
+                # Should wait for user since a valid question was generated
+                assert final_state["status"] == "WAITING_FOR_USER"

@@ -148,3 +148,57 @@ def test_routing_proceeds_if_all_resolved(base_state):
         g.status = GapStatus.RESOLVED
         
     assert route_after_gap_detection(base_state) == "PROCEED"
+
+@patch('app.graph.nodes.ask_questions.LLMService')
+def test_ask_questions_fallback_gap_ids(mock_llm, base_state):
+    # Setup mock to return an invalid gap_id
+    mock_instance = MagicMock()
+    mock_llm.return_value = mock_instance
+    mock_instance.generate_structured.return_value = QuestionGenerationResult(
+        questions=[
+            Question(
+                id="q_new2",
+                gap_ids=["invalid_string"],
+                question="What is this?",
+                category="COMBINED",
+                priority=Importance.OPTIONAL
+            )
+        ]
+    )
+    
+    new_state = ask_questions(base_state)
+    
+    assert len(new_state["questions"]) == 1
+    # Check that priority was upgraded
+    assert new_state["questions"][0].priority == Importance.IMPORTANT
+    # Check that gap_ids fell back to eligible ones (g1, g2)
+    assert set(new_state["questions"][0].gap_ids) == {"g1", "g2"}
+    assert new_state["status"] == "WAITING_FOR_USER"
+
+@patch('app.graph.nodes.ask_questions.LLMService')
+def test_ask_questions_zero_questions(mock_llm, base_state):
+    # Setup mock to return 0 questions
+    mock_instance = MagicMock()
+    mock_llm.return_value = mock_instance
+    mock_instance.generate_structured.return_value = QuestionGenerationResult(
+        questions=[]
+    )
+    
+    new_state = ask_questions(base_state)
+    
+    assert len(new_state["questions"]) == 0
+    assert new_state["status"] == "ANALYZING"
+
+def test_route_after_ask_questions():
+    from app.graph.routing import route_after_ask_questions
+    # No questions
+    assert route_after_ask_questions({"questions": []}) == "PROCEED"
+    
+    # Only answered questions
+    q1 = Question(id="1", question="?", category="X", priority=Importance.IMPORTANT, status=QuestionStatus.ANSWERED)
+    assert route_after_ask_questions({"questions": [q1]}) == "PROCEED"
+    
+    # Pending questions
+    q2 = Question(id="2", question="?", category="X", priority=Importance.IMPORTANT, status=QuestionStatus.PENDING)
+    assert route_after_ask_questions({"questions": [q1, q2]}) == "WAIT_FOR_ANSWERS"
+

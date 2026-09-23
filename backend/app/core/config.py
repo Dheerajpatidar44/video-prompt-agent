@@ -4,7 +4,7 @@ from pydantic import Field
 class Settings(BaseSettings):
     app_name: str = Field("Video Prompt Agent", validation_alias="APP_NAME")
     app_env: str = Field("development", validation_alias="APP_ENV")
-    app_host: str = Field("127.0.0.1", validation_alias="APP_HOST")
+    app_host: str = Field("127.0.0.1",validation_alias="APP_HOST")
     app_port: int = Field(8000, validation_alias="APP_PORT")
     ollama_base_url: str = Field("http://localhost:11434", validation_alias="OLLAMA_BASE_URL")
     ollama_model: str = Field("llama3", validation_alias="OLLAMA_MODEL")

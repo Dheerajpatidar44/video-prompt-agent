@@ -10,7 +10,7 @@ from app.graph.nodes.re_analyze import re_analyze
 from app.graph.nodes.build_video_spec import build_video_spec
 from app.graph.nodes.scene_planner import scene_planner
 from app.graph.nodes.prompt_generator import prompt_generator
-from app.graph.routing import route_after_gap_detection
+from app.graph.routing import route_after_gap_detection, route_after_ask_questions
 
 def build_graph():
     workflow = StateGraph(AgentState)
@@ -40,9 +40,15 @@ def build_graph():
         }
     )
     
-    # Human-in-the-loop will interrupt here. 
-    # Once resumed, update_state processes answers.
-    workflow.add_edge("ask_questions", "update_state")
+    # Conditional routing after ask_questions
+    workflow.add_conditional_edges(
+        "ask_questions",
+        route_after_ask_questions,
+        {
+            "WAIT_FOR_ANSWERS": "update_state",
+            "PROCEED": "build_video_spec"
+        }
+    )
     
     # After updating state, re-evaluate gaps
     workflow.add_edge("update_state", "re_analyze")

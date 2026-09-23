@@ -20,3 +20,15 @@ def route_after_gap_detection(state: AgentState) -> str:
         return "ASK_QUESTIONS"
         
     return "PROCEED"
+
+def route_after_ask_questions(state: AgentState) -> str:
+    """Determine whether there are actual questions to ask the user, or if we should proceed."""
+    from app.schemas.agent import QuestionStatus
+    
+    questions = state.get("questions", [])
+    pending = [q for q in questions if q.status == QuestionStatus.PENDING]
+    
+    if pending:
+        return "WAIT_FOR_ANSWERS"
+        
+    return "PROCEED"

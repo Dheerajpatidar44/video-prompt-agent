@@ -11,6 +11,7 @@ router = APIRouter()
 graph = build_graph()
 
 class AnalyzeResponse(BaseModel):
+    thread_id: str
     status: str
     script: Dict[str, Any]
     analysis: Optional[Dict[str, Any]] = None
@@ -58,7 +59,7 @@ def analyze_script_endpoint(
         raise HTTPException(status_code=500, detail=f"Internal server error during ingestion: {str(e)}")
 
     # Execute LangGraph workflow
-    print("DIAGNOSTIC: Entering graph execution")
+    print(f"DIAGNOSTIC: Entering graph execution. THREAD_ID = {script_doc.document_id}")
     initial_state = {
         "project_id": script_doc.document_id,
         "original_script": script_doc.normalized_text,
@@ -74,6 +75,7 @@ def analyze_script_endpoint(
         if final_state.get("error"):
             print("DIAGNOSTIC: graph returned error state")
             return AnalyzeResponse(
+                thread_id=script_doc.document_id,
                 status="error",
                 script=script_doc.model_dump(),
                 error=final_state["error"]
@@ -89,6 +91,7 @@ def analyze_script_endpoint(
         }
             
         return AnalyzeResponse(
+            thread_id=script_doc.document_id,
             status="completed",
             script=script_doc.model_dump(),
             analysis=final_state.get("analysis", {}),
@@ -187,7 +190,7 @@ def get_scene_plan(thread_id: str):
     
     if not plan:
         raise HTTPException(status_code=404, detail="Scene plan not yet generated.")
-        
+    
     return {
         "thread_id": thread_id,
         "scene_plan": plan.model_dump() if hasattr(plan, "model_dump") else plan,

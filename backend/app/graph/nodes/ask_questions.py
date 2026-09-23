@@ -60,13 +60,15 @@ def ask_questions(state: AgentState) -> AgentState:
         # Validate gap_ids exist
         valid_q_gaps = [gid for gid in q.gap_ids if gid in valid_gap_ids]
         if not valid_q_gaps:
-            continue
+            logger.warning(f"LLM generated question with invalid gap_ids {q.gap_ids}. Falling back to all eligible gaps.")
+            valid_q_gaps = list(valid_gap_ids)
             
         q.gap_ids = valid_q_gaps
         
-        # Enforce no OPTIONAL/INFERABLE unless requested? Prompt instructions say priority.
+        # Enforce priority based on the underlying gaps if LLM downplays it
         if q.priority in [Importance.OPTIONAL, Importance.INFERABLE]:
-            continue
+            logger.warning(f"LLM generated OPTIONAL/INFERABLE priority for question. Upgrading to IMPORTANT.")
+            q.priority = Importance.IMPORTANT
             
         # Ensure fresh ID and proper status
         q.id = str(uuid.uuid4())
@@ -97,8 +99,10 @@ def ask_questions(state: AgentState) -> AgentState:
     # Limit count
     final_questions = unique_questions[:MAX_QUESTIONS_PER_ROUND]
     
+    status = AgentStatus.WAITING_FOR_USER if final_questions else AgentStatus.ANALYZING
+    
     return {
         **state,
         "questions": existing_questions + final_questions,
-        "status": AgentStatus.WAITING_FOR_USER
+        "status": status
     }
