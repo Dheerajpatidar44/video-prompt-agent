@@ -121,9 +121,9 @@ def validate_prompt_set(
                      issues.append(ValidationIssue(
                          issue_type="UNSUPPORTED_CAMERA_PARAMETER",
                          description=f"Prompt {prompt.shot_id} hallucinated technical camera parameter: '{matched_text}'",
-                         severity="IMPORTANT",
+                         severity="CRITICAL",
                          related_entity_id=prompt.shot_id,
-                         blocking=False # Important, but might not be fully blocking depending on strictness. Let's make it important.
+                         blocking=True
                      ))
                      
         # Scene/Shot order check

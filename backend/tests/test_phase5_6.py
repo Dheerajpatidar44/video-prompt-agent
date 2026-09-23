@@ -168,12 +168,9 @@ def test_ask_questions_fallback_gap_ids(mock_llm, base_state):
     
     new_state = ask_questions(base_state)
     
-    assert len(new_state["questions"]) == 1
-    # Check that priority was upgraded
-    assert new_state["questions"][0].priority == Importance.IMPORTANT
-    # Check that gap_ids fell back to eligible ones (g1, g2)
-    assert set(new_state["questions"][0].gap_ids) == {"g1", "g2"}
-    assert new_state["status"] == "WAITING_FOR_USER"
+    # Question should be discarded, length remains 0
+    assert len(new_state["questions"]) == 0
+    assert new_state["status"] == "ANALYZING"
 
 @patch('app.graph.nodes.ask_questions.LLMService')
 def test_ask_questions_zero_questions(mock_llm, base_state):

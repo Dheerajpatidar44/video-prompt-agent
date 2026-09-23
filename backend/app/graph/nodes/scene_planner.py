@@ -72,27 +72,27 @@ def validate_scene_plan(spec, plan: MasterScenePlan) -> MasterScenePlan:
              issues.append(ValidationIssue(
                  issue_type="INVALID_LOCATION",
                  description=f"Scene {scene.scene_id} references unknown location {scene.location_id}",
-                 severity="IMPORTANT",
+                 severity="CRITICAL",
                  related_entity_id=scene.scene_id,
-                 blocking=False
+                 blocking=True
              ))
         for cid in scene.character_ids:
              if cid not in valid_character_ids:
                   issues.append(ValidationIssue(
                       issue_type="INVALID_CHARACTER",
                       description=f"Scene {scene.scene_id} references unknown character {cid}",
-                      severity="IMPORTANT",
+                      severity="CRITICAL",
                       related_entity_id=scene.scene_id,
-                      blocking=False
+                      blocking=True
                   ))
         for pid in scene.product_ids:
              if pid not in valid_product_ids:
                   issues.append(ValidationIssue(
                       issue_type="INVALID_PRODUCT",
                       description=f"Scene {scene.scene_id} references unknown product {pid}",
-                      severity="IMPORTANT",
+                      severity="CRITICAL",
                       related_entity_id=scene.scene_id,
-                      blocking=False
+                      blocking=True
                   ))
 
     plan.validation_issues = issues

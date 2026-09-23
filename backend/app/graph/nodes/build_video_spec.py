@@ -35,6 +35,23 @@ def build_video_spec(state: AgentState) -> AgentState:
         logger.error(f"Failed to generate VideoSpecification: {e}")
         return {**state, "status": AgentStatus.ERROR, "error": str(e)}
 
+    # Safe defaults injection
+    from app.core.config import settings
+    from app.schemas.specification import SpecSource
+
+    if spec.output_requirements.duration_seconds is None:
+        spec.output_requirements.duration_seconds = settings.default_duration_seconds
+        spec.output_requirements.source = SpecSource.SYSTEM_DEFAULT
+        logger.info(f"Duration missing. Applying SYSTEM_DEFAULT: {settings.default_duration_seconds}s")
+        
+    if spec.output_requirements.aspect_ratio is None:
+        spec.output_requirements.aspect_ratio = settings.default_aspect_ratio
+        if spec.output_requirements.source != SpecSource.SYSTEM_DEFAULT:
+            # If duration had a source but aspect ratio was missing, we can't easily set source for just one field in the current schema without a wrapper,
+            # but we set it on the parent output_requirements object for tracking.
+            spec.output_requirements.source = SpecSource.SYSTEM_DEFAULT
+        logger.info(f"Aspect ratio missing. Applying SYSTEM_DEFAULT: {settings.default_aspect_ratio}")
+
     # Deterministic Validation & Status Checking
     # 1. Any CRITICAL or IMPORTANT open gaps that are NOT in unresolved_items should be added.
     blocking_gaps = [g for g in gaps if g.status == GapStatus.OPEN and g.importance in (Importance.CRITICAL, Importance.IMPORTANT)]
@@ -46,6 +63,10 @@ def build_video_spec(state: AgentState) -> AgentState:
         
     for bg in blocking_gaps:
         if bg.id not in existing_unresolved_ids:
+            # If it's a safe field that we just defaulted (like duration/timing), don't block
+            if bg.category.value in ["TIMING", "ASPECT_RATIO"]:
+                continue
+                
             from app.schemas.specification import UnresolvedItem
             spec.unresolved_items.append(
                 UnresolvedItem(

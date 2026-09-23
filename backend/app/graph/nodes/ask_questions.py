@@ -9,7 +9,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Configurable constants (could be moved to app.core.config)
-MAX_QUESTIONS_PER_ROUND = 5
+# Max questions limitation removed. Questions are now purely dynamic.
 
 def ask_questions(state: AgentState) -> AgentState:
     """Convert important gaps into user-facing clarification questions."""
@@ -48,6 +48,10 @@ def ask_questions(state: AgentState) -> AgentState:
         logger.error(f"Failed to generate questions: {e}")
         return {**state, "status": AgentStatus.ERROR, "error": str(e)}
 
+    # Configurable constants (could be moved to app.core.config)
+    # The number of questions is now strictly dynamic based on gaps, 
+    # so we no longer use a MAX_QUESTIONS_PER_ROUND constant.
+    
     # Deterministic processing
     existing_questions = state.get("questions", [])
     current_round = state.get("current_round", 0)
@@ -59,9 +63,13 @@ def ask_questions(state: AgentState) -> AgentState:
     for q in result.questions:
         # Validate gap_ids exist
         valid_q_gaps = [gid for gid in q.gap_ids if gid in valid_gap_ids]
+        
         if not valid_q_gaps:
-            logger.warning(f"LLM generated question with invalid gap_ids {q.gap_ids}. Falling back to all eligible gaps.")
-            valid_q_gaps = list(valid_gap_ids)
+            # Semantic mapping fallback attempt could go here, but for now
+            # if we can't reliably map the question to a real gap, we discard it
+            # to avoid polluting the state with orphaned questions.
+            logger.warning(f"Discarding LLM generated question due to invalid or unmappable gap_ids: {q.gap_ids}")
+            continue
             
         q.gap_ids = valid_q_gaps
         
@@ -96,8 +104,7 @@ def ask_questions(state: AgentState) -> AgentState:
     
     unique_questions.sort(key=lambda x: priority_map.get(x.priority, 99))
     
-    # Limit count
-    final_questions = unique_questions[:MAX_QUESTIONS_PER_ROUND]
+    final_questions = unique_questions
     
     status = AgentStatus.WAITING_FOR_USER if final_questions else AgentStatus.ANALYZING
     

@@ -16,13 +16,13 @@ Instructions:
 3. Generate non-technical, user-friendly questions. DO NOT ask for camera ISO, aperture, etc., unless clearly needed.
 4. Use appropriate answer types: TEXT, SINGLE_CHOICE, MULTI_CHOICE, BOOLEAN, NUMBER.
 5. Provide options for SINGLE_CHOICE or MULTI_CHOICE questions.
-6. Link each question back to the original gap_ids it addresses.
-7. Ask fewer, better questions. Quality > Quantity.
+6. Link each question back to the ORIGINAL gap_ids it addresses. YOU MUST ONLY USE gap_ids THAT EXIST IN THE DETECTED GAPS LIST. DO NOT MAKE UP OR HALLUCINATE gap_ids.
+7. Ask exactly as many questions as necessary to resolve the meaningful gaps. No more, no less. If 1 question covers everything, ask 1. If 8 are needed, ask 8.
 8. Do NOT invent facts or answer the questions yourself.
 
 Return a JSON object containing a "questions" array with the following fields per question:
 - id: A unique string identifier.
-- gap_ids: List of string IDs of the gaps this question addresses.
+- gap_ids: List of string IDs of the gaps this question addresses. Must strictly match the input gap IDs.
 - question: The clarification question text.
 - category: A related category string (e.g. CHARACTER, LIGHTING).
 - priority: One of [CRITICAL, IMPORTANT, OPTIONAL, INFERABLE].

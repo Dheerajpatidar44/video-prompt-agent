@@ -15,9 +15,9 @@ User Answers:
 
 Instructions:
 1. Review the previous gaps and the newly provided user answers.
-2. Determine which gaps are now resolved by the user's answers. A gap is RESOLVED if the answer provides sufficient information to proceed.
+2. Determine which gaps are now resolved by the user's answers. STRICT SEMANTIC VALIDATION: A gap is ONLY RESOLVED if the answer semantically provides sufficient information to satisfy that specific gap. Do not mark a gap RESOLVED merely because a related question was answered. For example, if the gap is "missing duration" and the answer is "make it luxurious", the duration gap remains OPEN.
 3. If an answer contradicts the original script, DO NOT overwrite the original script. Instead, note the contradiction in a new gap or mark it in the output.
-4. If an answer is insufficient (e.g. "Normal" for character appearance), the gap should remain OPEN.
+4. If an answer is insufficient (e.g. "Normal" for character appearance), the gap MUST remain OPEN.
 5. If an answer introduces a new gap (e.g. User says "Yes I have a specific image" but the image is missing), create a new gap for the missing reference asset.
 6. Return a JSON object with a "gaps" array containing all gaps (both previous and any new ones).
 
