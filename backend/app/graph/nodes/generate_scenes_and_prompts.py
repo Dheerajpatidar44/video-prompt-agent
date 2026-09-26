@@ -50,7 +50,6 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
             GenerationResult,
             operation="generate_scenes_and_prompts",
             thread_id=thread_id,
-            max_tokens=4096,  # larger output for combined generation
         )
     except LLMException as e:
         logger.error(f"Failed to generate scenes+prompts: {e}")

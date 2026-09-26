@@ -34,6 +34,10 @@ class LLMService:
       the API beyond rate limits.
     - Detailed latency instrumentation on every call, with queue-wait time
       reported separately from actual LLM call time.
+    - Uses tool_choice="auto" + an explicit prompt instruction (instead of
+      forced tool_choice) so this works on ALL models, including ones like
+      Claude Opus 5.5 where extended thinking is always on and forced
+      tool_choice ("tool"/"any") is not supported and returns a 400 error.
     """
 
     _client: AsyncAnthropic | None = None
@@ -79,13 +83,17 @@ class LLMService:
         thread_id: str = "",
         max_tokens: int | None = None,
     ) -> T:
-        """Single-call structured generation using forced tool-use."""
-        
+        """Single-call structured generation using tool-use with tool_choice
+        set to "auto" (not forced). Forced tool_choice ("tool"/"any") is
+        rejected by models with always-on extended thinking (e.g. Opus 5.5),
+        so we steer the model via an explicit instruction appended to the
+        prompt instead — this is compatible with every current model."""
+
         effective_max_tokens = (
             max_tokens if max_tokens is not None else settings.anthropic_max_tokens
         )
         schema_json = _schema_json(schema)
-        
+
         # Build tool definition for structured output
         tool_name = "extract_structured_data"
         tools = [
@@ -95,7 +103,15 @@ class LLMService:
                 "input_schema": schema_json,
             }
         ]
-        
+
+        # Explicit instruction to steer the model toward using the tool,
+        # since tool_choice is "auto" and doesn't guarantee tool use on its own.
+        prompt_with_instruction = (
+            f"{prompt}\n\n"
+            f"Use the `{tool_name}` tool to provide your complete answer. "
+            f"Do not respond with plain text — call the tool with the full result."
+        )
+
         t_enqueued = time.perf_counter()
         async with LLMService._semaphore:
             t_call_start = time.perf_counter()
@@ -103,10 +119,10 @@ class LLMService:
             try:
                 response = await self.client.messages.create(
                     model=self.model_name,
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=[{"role": "user", "content": prompt_with_instruction}],
                     max_tokens=effective_max_tokens,
                     tools=tools,
-                    tool_choice={"type": "tool", "name": tool_name}
+                    tool_choice={"type": "auto"},
                 )
             except anthropic.APIStatusError as e:
                 elapsed = time.perf_counter() - t_call_start
@@ -126,7 +142,7 @@ class LLMService:
 
         elapsed = time.perf_counter() - t_call_start
 
-        try:    
+        try:
             prompt_tokens = response.usage.input_tokens
             gen_tokens = response.usage.output_tokens
 
@@ -145,8 +161,20 @@ class LLMService:
         # Extract tool use content block
         tool_use = next((block for block in response.content if block.type == "tool_use"), None)
         if tool_use is None:
-            raise LLMException(f"No tool_use block returned for {operation}")
-            
+            # With tool_choice="auto", the model isn't forced to call the tool.
+            # Log what it returned instead (usually a text block) so a bad
+            # prompt/instruction is easy to diagnose rather than a bare failure.
+            text_block = next((block for block in response.content if block.type == "text"), None)
+            fallback_text = text_block.text[:300] if text_block else "(no text block either)"
+            logger.error(
+                f"LLM NO_TOOL_USE | op={operation} thread={thread_id} "
+                f"stop_reason={response.stop_reason} response_preview={fallback_text!r}"
+            )
+            raise LLMException(
+                f"No tool_use block returned for {operation} "
+                f"(stop_reason={response.stop_reason}) — model did not call the tool"
+            )
+
         try:
             return schema.model_validate(tool_use.input)
         except Exception as e:
