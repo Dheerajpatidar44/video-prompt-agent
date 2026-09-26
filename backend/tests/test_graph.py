@@ -92,27 +92,26 @@ def test_routing_respects_max_rounds():
     route = route_after_gap_detection(state)
     assert route == "PROCEED"
 
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, AsyncMock
+import pytest
 
-@patch('app.graph.nodes.detect_gaps.LLMService')
-@patch('app.graph.nodes.analyze_script.LLMService')
-@patch('app.graph.nodes.build_video_spec.LLMService')
-@patch('app.graph.nodes.scene_planner.LLMService')
-def test_graph_compiles_and_executes(mock_planner, mock_build, mock_analyze, mock_detect):
+@patch('app.graph.nodes.generate_scenes_and_prompts.llm_service')
+@patch('app.graph.nodes.build_video_spec.llm_service')
+@patch('app.graph.nodes.analyze_script.llm_service')
+@pytest.mark.asyncio
+async def test_graph_compiles_and_executes(mock_analyze, mock_build, mock_generate):
     # 9. Graph can compile successfully.
     # 10. Placeholder graph can execute without Ollama.
     # 11. No external LLM API is required.
     
     # Mock return values for LLMs
-    from app.schemas.script import ScriptAnalysis
-    from app.schemas.agent import GapDetectionResult
+    from app.schemas.script import InitialAnalysisResult
     from app.schemas.specification import VideoSpecification
-    from app.schemas.scene_plan import MasterScenePlan
+    from app.schemas.generation import GenerationResult
     
-    mock_analyze.return_value.generate_structured.return_value = ScriptAnalysis()
-    mock_detect.return_value.generate_structured.return_value = GapDetectionResult()
-    mock_build.return_value.generate_structured.return_value = VideoSpecification(project_id="test-1")
-    mock_planner.return_value.generate_structured.return_value = MasterScenePlan()
+    mock_analyze.generate_structured = AsyncMock(return_value=InitialAnalysisResult())
+    mock_build.generate_structured = AsyncMock(return_value=VideoSpecification(project_id="test-1"))
+    mock_generate.generate_structured = AsyncMock(return_value=GenerationResult())
 
     graph = build_graph()
     
@@ -121,6 +120,6 @@ def test_graph_compiles_and_executes(mock_planner, mock_build, mock_analyze, moc
     # We run it up to the interrupt point (update_state) if it were to ask questions,
     # but initially gaps are empty, so it should route to build_video_spec and finish.
     config = {"configurable": {"thread_id": "1"}}
-    final_state = graph.invoke(initial_state, config)
+    final_state = await graph.ainvoke(initial_state, config)
     
     assert final_state["status"] == AgentStatus.VALIDATING

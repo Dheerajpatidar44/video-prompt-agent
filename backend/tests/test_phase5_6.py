@@ -1,10 +1,9 @@
 import pytest
-from app.schemas.agent import Gap, Question, Answer, Importance, GapStatus, QuestionStatus, AnswerType, QuestionGenerationResult, GapCategory
-from app.graph.nodes.ask_questions import ask_questions
+from app.schemas.agent import Gap, Question, Answer, Importance, GapStatus, QuestionStatus, AnswerType, GapCategory
 from app.graph.nodes.update_state import update_state
 from app.graph.nodes.re_analyze import re_analyze
 from app.graph.routing import route_after_gap_detection
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 @pytest.fixture
 def base_state():
@@ -43,37 +42,7 @@ def base_state():
         "analysis": {}
     }
 
-@patch('app.graph.nodes.ask_questions.LLMService')
-def test_ask_questions_filters_gaps(mock_llm, base_state):
-    # Setup mock to return a valid QuestionGenerationResult
-    mock_instance = MagicMock()
-    mock_llm.return_value = mock_instance
-    mock_instance.generate_structured.return_value = QuestionGenerationResult(
-        questions=[
-            Question(
-                id="q_new1",
-                gap_ids=["g1", "g2"],
-                question="What is the age and lighting?",
-                category="COMBINED",
-                priority=Importance.CRITICAL
-            )
-        ]
-    )
-    
-    new_state = ask_questions(base_state)
-    
-    assert len(new_state["questions"]) == 1
-    assert new_state["questions"][0].status == QuestionStatus.PENDING
-    assert new_state["status"] == "WAITING_FOR_USER"
-    
-    # Check that LLM was called
-    assert mock_instance.generate_structured.called
-    
-    # Check that optional gap was NOT included in the prompt
-    call_args = mock_instance.generate_structured.call_args[0][0]
-    assert "g1" in call_args
-    assert "g2" in call_args
-    assert "g3" not in call_args
+
 
 def test_update_state_processes_answers(base_state):
     q1 = Question(
@@ -100,11 +69,9 @@ def test_update_state_processes_answers(base_state):
     assert new_state["current_round"] == 1
     assert new_state["status"] == "ANALYZING"
 
-@patch('app.graph.nodes.re_analyze.LLMService')
-def test_re_analyze_updates_gaps(mock_llm, base_state):
-    mock_instance = MagicMock()
-    mock_llm.return_value = mock_instance
-    
+@patch('app.graph.nodes.re_analyze.llm_service')
+@pytest.mark.asyncio
+async def test_re_analyze_updates_gaps(mock_llm, base_state):
     # Mock the LLM to return the first gap as RESOLVED
     g1_resolved = Gap(**base_state["gaps"][0].model_dump())
     g1_resolved.status = GapStatus.RESOLVED
@@ -114,12 +81,12 @@ def test_re_analyze_updates_gaps(mock_llm, base_state):
     ]
     
     from app.schemas.agent import GapDetectionResult
-    mock_instance.generate_structured.return_value = GapDetectionResult(
-        gaps=[g1_resolved]  # LLM only returns the modified ones or we append missing
-    )
+    mock_llm.generate_structured = AsyncMock(return_value=GapDetectionResult(
+        gaps=[g1_resolved]
+    ))
 
-    print("BEFORE RE_ANALYZE, MOCK RETURNS:", mock_instance.generate_structured.return_value.gaps[0].status)
-    new_state = re_analyze(base_state)
+    print("BEFORE RE_ANALYZE, MOCK RETURNS:", mock_llm.generate_structured.return_value.gaps[0].status)
+    new_state = await re_analyze(base_state)
     
     print("NEW STATE STATUS:", new_state.get("status"))
     print("NEW STATE ERROR:", new_state.get("error"))
@@ -148,54 +115,4 @@ def test_routing_proceeds_if_all_resolved(base_state):
         g.status = GapStatus.RESOLVED
         
     assert route_after_gap_detection(base_state) == "PROCEED"
-
-@patch('app.graph.nodes.ask_questions.LLMService')
-def test_ask_questions_fallback_gap_ids(mock_llm, base_state):
-    # Setup mock to return an invalid gap_id
-    mock_instance = MagicMock()
-    mock_llm.return_value = mock_instance
-    mock_instance.generate_structured.return_value = QuestionGenerationResult(
-        questions=[
-            Question(
-                id="q_new2",
-                gap_ids=["invalid_string"],
-                question="What is this?",
-                category="COMBINED",
-                priority=Importance.OPTIONAL
-            )
-        ]
-    )
-    
-    new_state = ask_questions(base_state)
-    
-    # Question should be discarded, length remains 0
-    assert len(new_state["questions"]) == 0
-    assert new_state["status"] == "ANALYZING"
-
-@patch('app.graph.nodes.ask_questions.LLMService')
-def test_ask_questions_zero_questions(mock_llm, base_state):
-    # Setup mock to return 0 questions
-    mock_instance = MagicMock()
-    mock_llm.return_value = mock_instance
-    mock_instance.generate_structured.return_value = QuestionGenerationResult(
-        questions=[]
-    )
-    
-    new_state = ask_questions(base_state)
-    
-    assert len(new_state["questions"]) == 0
-    assert new_state["status"] == "ANALYZING"
-
-def test_route_after_ask_questions():
-    from app.graph.routing import route_after_ask_questions
-    # No questions
-    assert route_after_ask_questions({"questions": []}) == "PROCEED"
-    
-    # Only answered questions
-    q1 = Question(id="1", question="?", category="X", priority=Importance.IMPORTANT, status=QuestionStatus.ANSWERED)
-    assert route_after_ask_questions({"questions": [q1]}) == "PROCEED"
-    
-    # Pending questions
-    q2 = Question(id="2", question="?", category="X", priority=Importance.IMPORTANT, status=QuestionStatus.PENDING)
-    assert route_after_ask_questions({"questions": [q1, q2]}) == "WAIT_FOR_ANSWERS"
 
