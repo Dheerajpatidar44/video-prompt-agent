@@ -8,7 +8,7 @@ import logging
 from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus, GapStatus, Importance, QuestionStatus
 from app.schemas.script import InitialAnalysisResult
-from app.llm.ollama import llm_service, LLMException
+from app.llm.claude_client import llm_service, LLMException
 from app.prompts.initial_analysis import INITIAL_ANALYSIS_PROMPT
 
 logger = logging.getLogger(__name__)

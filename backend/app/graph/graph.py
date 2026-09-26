@@ -7,7 +7,7 @@ from app.graph.nodes.update_state import update_state
 from app.graph.nodes.re_analyze import re_analyze
 from app.graph.nodes.build_video_spec import build_video_spec
 from app.graph.nodes.generate_scenes_and_prompts import generate_scenes_and_prompts
-from app.graph.routing import route_after_gap_detection, route_after_analysis
+from app.graph.routing import route_after_analysis
 
 
 def build_graph():
@@ -38,12 +38,12 @@ def build_graph():
     # After user answers are merged, re-evaluate gaps
     workflow.add_edge("update_state", "re_analyze")
     
-    # After re-analysis, route again
+    # After re-analysis, route again (same routing logic as after analyze_script)
     workflow.add_conditional_edges(
         "re_analyze",
-        route_after_gap_detection,
+        route_after_analysis,
         {
-            "ASK_QUESTIONS": "update_state",  # loop back to wait for more answers
+            "WAIT_FOR_ANSWERS": "update_state",  # loop back to wait for more answers
             "PROCEED": "build_video_spec"
         }
     )

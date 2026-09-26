@@ -4,7 +4,7 @@ langgraph
 langchain-core
 pydantic
 pydantic-settings
-ollama
+anthropic
 python-dotenv
 pytest
 httpx

@@ -15,7 +15,7 @@ from app.schemas.generated_prompt import (
     ValidationIssue as PromptValidationIssue,
 )
 from app.schemas.generation import GenerationResult
-from app.llm.ollama import llm_service, LLMException
+from app.llm.claude_client import llm_service, LLMException
 from app.prompts.generation import GENERATION_PROMPT
 from app.validators.prompt_validation import validate_prompt_set
 
@@ -40,9 +40,9 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
 
     prompt = GENERATION_PROMPT.format(
         video_specification=spec.model_dump_json(indent=2),
-        continuity_bible=spec.continuity_bible.model_dump_json(indent=2),
         total_duration=target_duration if target_duration is not None else "UNKNOWN",
     )
+    logger.info(f"Final prompt length: {len(prompt)} characters")
 
     try:
         result = await llm_service.generate_structured(
@@ -50,11 +50,16 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
             GenerationResult,
             operation="generate_scenes_and_prompts",
             thread_id=thread_id,
-            num_predict=4096,  # larger output for combined generation
+            max_tokens=4096,  # larger output for combined generation
         )
     except LLMException as e:
         logger.error(f"Failed to generate scenes+prompts: {e}")
         return {**state, "status": AgentStatus.ERROR, "error": str(e)}
+
+    if not result.scenes or not result.prompts:
+        error_msg = "LLM returned an empty scene/prompt plan — no scenes or prompts were generated."
+        logger.error(error_msg)
+        return {**state, "status": AgentStatus.ERROR, "error": error_msg}
 
     # ---- Deterministic Python post-processing ----
 
@@ -139,9 +144,14 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
     # 3. Run deterministic Python validation
     prompt_set = validate_prompt_set(spec, master_plan, prompt_set)
 
+    if prompt_set.status == PromptStatus.READY:
+        final_status = AgentStatus.COMPLETED
+    else:
+        final_status = AgentStatus.VALIDATING
+
     return {
         **state,
         "scene_plan": master_plan,
         "prompt_set": prompt_set,
-        "status": AgentStatus.VALIDATING,
+        "status": final_status,
     }

@@ -6,9 +6,6 @@ Given a complete Video Specification, generate a Master Scene Plan AND productio
 VIDEO SPECIFICATION:
 {video_specification}
 
-CONTINUITY BIBLE:
-{continuity_bible}
-
 TOTAL TARGET DURATION (seconds): {total_duration}
 ===================
 

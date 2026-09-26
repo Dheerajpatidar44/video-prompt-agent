@@ -1,8 +1,9 @@
 from typing import List
 from app.graph.state import AgentState
-from app.schemas.agent import AgentStatus, Gap, GapDetectionResult, GapStatus, Importance
-from app.llm.ollama import llm_service, LLMException
+from app.schemas.agent import AgentStatus, Gap, ReAnalysisResult, GapStatus, Importance, QuestionStatus
+from app.llm.claude_client import llm_service, LLMException
 from app.prompts.re_analyzer import RE_ANALYZER_PROMPT
+from app.graph.routing import within_round_limit, has_unresolved_priority_gaps
 import logging
 
 logger = logging.getLogger(__name__)
@@ -30,10 +31,12 @@ def sort_gaps(gaps: list[Gap]) -> list[Gap]:
 
 
 async def re_analyze(state: AgentState) -> AgentState:
-    """Re-evaluate gaps based on new user answers. ONE LLM call."""
+    """Re-evaluate gaps based on new user answers, and conditionally generate new questions."""
     gaps = state.get("gaps", [])
     answers = state.get("answers", [])
     thread_id = state.get("project_id", "")
+    current_round = state.get("current_round", 0)
+    max_rounds = state.get("max_rounds", 2)
     
     if not gaps or not answers:
         return state
@@ -44,16 +47,19 @@ async def re_analyze(state: AgentState) -> AgentState:
     gaps_json = [g.model_dump() for g in gaps]
     answers_json = [a.model_dump() for a in answers]
     
+    rounds_remaining = within_round_limit(current_round, max_rounds)
+    
     prompt = RE_ANALYZER_PROMPT.format(
         script=original_script,
         analysis=script_analysis,
         gaps=gaps_json,
-        answers=answers_json
+        answers=answers_json,
+        generate_questions=str(rounds_remaining).lower()
     )
     
     try:
         result = await llm_service.generate_structured(
-            prompt, GapDetectionResult,
+            prompt, ReAnalysisResult,
             operation="re_analyze",
             thread_id=thread_id,
         )
@@ -65,7 +71,6 @@ async def re_analyze(state: AgentState) -> AgentState:
     existing_gap_map = {g.id: g for g in gaps}
     
     processed_gaps = []
-    
     for g in result.gaps:
         if getattr(g, "status", None) is None:
             g.status = GapStatus.OPEN
@@ -80,8 +85,23 @@ async def re_analyze(state: AgentState) -> AgentState:
     unique_gaps = deduplicate_gaps(processed_gaps)
     sorted_gaps = sort_gaps(unique_gaps)
     
+    new_questions = []
+    if rounds_remaining:
+        for q in result.questions:
+            q.round_number = current_round + 1
+            q.status = QuestionStatus.PENDING
+            new_questions.append(q)
+    
+    merged_questions = state.get("questions", []) + new_questions
+    
+    if rounds_remaining and has_unresolved_priority_gaps(sorted_gaps) and len(new_questions) > 0:
+        final_status = AgentStatus.WAITING_FOR_USER
+    else:
+        final_status = AgentStatus.ANALYZING
+
     return {
         **state,
         "gaps": sorted_gaps,
-        "status": AgentStatus.ANALYZING
+        "questions": merged_questions,
+        "status": final_status
     }

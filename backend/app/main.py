@@ -11,10 +11,10 @@ setup_logging()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup: warm up the Ollama model once so it stays in GPU/RAM."""
-    from app.llm.ollama import llm_service
-    await llm_service.warmup()
+    """Lifecycle events for FastAPI."""
     yield
+    from app.llm.claude_client import LLMService
+    await LLMService.close()
 
 
 app = FastAPI(
