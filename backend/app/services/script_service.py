@@ -13,12 +13,12 @@ class ScriptService:
         return text.strip()
 
     @staticmethod
-    def ingest_file(file_path: str, source_type: str, filename: str) -> ScriptDocument:
+    async def ingest_file(file_path: str, source_type: str, filename: str) -> ScriptDocument:
         if not os.path.exists(file_path):
             raise ValueError("File does not exist.")
             
         if source_type.lower() == "pdf":
-            original_text = PDFParser.parse(file_path)
+            original_text = await PDFParser.parse(file_path)
         elif source_type.lower() in ["txt", "text"]:
             original_text = TextParser.parse(file_path)
         else:

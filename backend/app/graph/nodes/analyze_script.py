@@ -25,15 +25,34 @@ async def analyze_script(state: AgentState) -> AgentState:
         }
 
     thread_id = state.get("project_id", "")
-    prompt = INITIAL_ANALYSIS_PROMPT.format(script=script_text)
+    
+    ref_images_dict = state.get("reference_images", {})
+    all_image_urls = []
+    for cat_urls in ref_images_dict.values():
+        all_image_urls.extend(cat_urls)
+        
+    prompt = INITIAL_ANALYSIS_PROMPT.format(
+        script=script_text,
+        reference_image_descriptions="No reference images provided." if not all_image_urls else f"Provided {len(all_image_urls)} reference images. Please analyze them.",
+        previous_qa="None (This is the initial analysis)"
+    )
 
     try:
-        result = await llm_service.generate_structured(
-            prompt,
-            InitialAnalysisResult,
-            operation="initial_analysis",
-            thread_id=thread_id,
-        )
+        if all_image_urls:
+            result = await llm_service.generate_structured_with_images(
+                prompt,
+                all_image_urls,
+                InitialAnalysisResult,
+                operation="initial_analysis_with_vision",
+                thread_id=thread_id,
+            )
+        else:
+            result = await llm_service.generate_structured(
+                prompt,
+                InitialAnalysisResult,
+                operation="initial_analysis",
+                thread_id=thread_id,
+            )
     except LLMException as e:
         return {**state, "status": AgentStatus.ERROR, "error": str(e)}
 

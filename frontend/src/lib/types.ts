@@ -125,6 +125,7 @@ export interface GeneratedPrompt {
   duration_seconds: number;
   prompt_text: string;
   negative_constraints: string;
+  continuity_requirements: string[];
   camera_parameters: string;
   lighting_parameters: string;
   motion_parameters: string;

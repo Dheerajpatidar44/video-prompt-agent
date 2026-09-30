@@ -17,6 +17,11 @@ class Settings(BaseSettings):
     default_duration_seconds: int = Field(10, validation_alias="DEFAULT_DURATION_SECONDS")
     default_aspect_ratio: str = Field("16:9", validation_alias="DEFAULT_ASPECT_RATIO")
 
+    # Cloudinary Config
+    cloudinary_cloud_name: str = Field("default", validation_alias="CLOUDINARY_CLOUD_NAME")
+    cloudinary_api_key: str = Field("default", validation_alias="CLOUDINARY_API_KEY")
+    cloudinary_api_secret: str = Field("default", validation_alias="CLOUDINARY_API_SECRET")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

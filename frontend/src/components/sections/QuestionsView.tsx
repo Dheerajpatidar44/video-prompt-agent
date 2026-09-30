@@ -6,6 +6,7 @@ import { AlertCircle, ChevronRight, Loader2 } from "lucide-react";
 import type { Question } from "@/lib/types";
 
 interface QuestionsViewProps {
+  gaps?: any[];
   questions: Question[];
   answers: Record<string, string>;
   onAnswerChange: (id: string, value: string) => void;
@@ -19,7 +20,7 @@ const priorityColor: Record<string, string> = {
   OPTIONAL: "#6b7280",
 };
 
-export function QuestionsView({ questions, answers, onAnswerChange, onSubmit, isSubmitting }: QuestionsViewProps) {
+export function QuestionsView({ gaps = [], questions, answers, onAnswerChange, onSubmit, isSubmitting }: QuestionsViewProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {/* Info Banner */}
@@ -43,6 +44,57 @@ export function QuestionsView({ questions, answers, onAnswerChange, onSubmit, is
           </p>
         </div>
       </div>
+
+      {/* Gaps Section */}
+      {gaps.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 8 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--color-text-primary)", marginLeft: 4 }}>
+            Issues Identified in Script
+          </h3>
+          <div style={{ display: "grid", gap: 10 }}>
+            {gaps.map((gap, idx) => (
+              <motion.div
+                key={idx}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: idx * 0.05 }}
+                style={{
+                  padding: "14px 18px",
+                  background: "var(--color-bg-elevated)",
+                  borderLeft: `4px solid ${priorityColor[gap.importance] || "#3b82f6"}`,
+                  borderRadius: "8px",
+                  borderTop: "1px solid var(--color-border-subtle)",
+                  borderRight: "1px solid var(--color-border-subtle)",
+                  borderBottom: "1px solid var(--color-border-subtle)",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 6,
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text-primary)" }}>
+                    {gap.title}
+                  </span>
+                  <span style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    padding: "2px 8px",
+                    borderRadius: 99,
+                    color: priorityColor[gap.importance] || "#3b82f6",
+                    background: `${priorityColor[gap.importance] || "#3b82f6"}1a`,
+                    textTransform: "uppercase"
+                  }}>
+                    {gap.importance}
+                  </span>
+                </div>
+                <p style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.5 }}>
+                  {gap.description}
+                </p>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Questions */}
       {questions.map((q, idx) => (
@@ -76,32 +128,6 @@ export function QuestionsView({ questions, answers, onAnswerChange, onSubmit, is
               <p style={{ fontSize: 14, fontWeight: 500, color: "var(--color-text-primary)", lineHeight: 1.5, marginBottom: 6 }}>
                 {q.question}
               </p>
-              <div style={{ display: "flex", gap: 6 }}>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 500,
-                    padding: "2px 8px",
-                    borderRadius: 99,
-                    background: "var(--color-bg-overlay)",
-                    color: "var(--color-text-secondary)",
-                  }}
-                >
-                  {q.category}
-                </span>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    padding: "2px 8px",
-                    borderRadius: 99,
-                    color: priorityColor[q.priority] || "#6b7280",
-                    background: `${priorityColor[q.priority] || "#6b7280"}1a`,
-                  }}
-                >
-                  {q.priority}
-                </span>
-              </div>
             </div>
           </div>
 

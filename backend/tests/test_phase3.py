@@ -23,13 +23,14 @@ def test_empty_text_ingestion():
     with pytest.raises(ValueError, match="Input text is empty."):
         ScriptService.ingest_text("   \n ")
 
-def test_txt_parsing():
+@pytest.mark.asyncio
+async def test_txt_parsing():
     with tempfile.NamedTemporaryFile(mode="w", delete=False, suffix=".txt") as tmp:
         tmp.write("Test script.")
         tmp_path = tmp.name
     
     try:
-        doc = ScriptService.ingest_file(tmp_path, "txt", "test.txt")
+        doc = await ScriptService.ingest_file(tmp_path, "txt", "test.txt")
         assert doc.original_text == "Test script."
         assert doc.source_type == "txt"
     finally:
@@ -101,9 +102,9 @@ async def test_analyze_script_node_with_mock(mock_llm_service):
     assert new_state["status"] == "ANALYZING"
     assert new_state["error"] is None
 
-@patch('app.api.routes.scripts.graph.ainvoke')
-def test_analyze_endpoint_with_text(mock_ainvoke):
-    # ainvoke returns a coroutine, so mock its return value
+@patch('app.api.routes.scripts._run_graph')
+def test_analyze_endpoint_with_text(mock_run_graph):
+    # _run_graph returns a coroutine, so mock its return value
     # But fastAPI will await it properly when called.
     from app.schemas.agent import AgentStatus
     async def mock_coro(*args, **kwargs):
@@ -112,7 +113,7 @@ def test_analyze_endpoint_with_text(mock_ainvoke):
             "status": AgentStatus.ANALYZING,
             "error": None
         }
-    mock_ainvoke.side_effect = mock_coro
+    mock_run_graph.side_effect = mock_coro
     
     response = client.post("/api/v1/scripts/analyze", data={"text": "Test from endpoint."})
     assert response.status_code == 200

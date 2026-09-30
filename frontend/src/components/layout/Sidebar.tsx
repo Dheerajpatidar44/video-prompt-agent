@@ -2,6 +2,7 @@
 
 import React from "react";
 import { Sparkles, FolderOpen, Layers, Settings, Plus } from "lucide-react";
+import Link from "next/link";
 
 interface NavItem {
   icon: React.ReactNode;
@@ -61,27 +62,39 @@ export function Sidebar() {
       </div>
 
       {/* New Project Button */}
-      <button
+      <Link 
+        href="/" 
         className="btn-primary"
-        style={{ padding: "10px 14px", fontSize: 14, marginBottom: 8, borderRadius: 8 }}
+        style={{ padding: "10px 14px", fontSize: 14, marginBottom: 8, borderRadius: 8, width: "100%", textDecoration: "none" }}
       >
         <Plus size={16} />
         New Project
-      </button>
+      </Link>
 
       {/* Navigation */}
       <nav style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-        {navItems.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => setActive(item.id)}
-            className={`sidebar-nav-item ${active === item.id ? "active" : ""}`}
-            style={{ background: "none", border: "none", width: "100%", textAlign: "left" }}
-          >
-            {item.icon}
-            {item.label}
-          </button>
-        ))}
+        <Link 
+          href="/projects" 
+          className="sidebar-nav-item"
+          style={{ width: "100%", textDecoration: "none" }}
+        >
+          <FolderOpen size={18} />
+          Projects
+        </Link>
+        <button
+          className={`sidebar-nav-item`}
+          style={{ background: "none", border: "none", width: "100%", textAlign: "left" }}
+        >
+          <Layers size={18} />
+          Assets
+        </button>
+        <button
+          className={`sidebar-nav-item`}
+          style={{ background: "none", border: "none", width: "100%", textAlign: "left" }}
+        >
+          <Settings size={18} />
+          Settings
+        </button>
       </nav>
     </aside>
   );

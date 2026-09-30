@@ -34,7 +34,14 @@ export default function HomePage() {
 
   const handleGenerate = () => {
     if (!scriptText.trim() && !uploadedFile) return;
-    analyzeScript(uploadedFile ?? undefined, scriptText.trim() || undefined);
+    analyzeScript(
+      uploadedFile ?? undefined, 
+      scriptText.trim() || undefined,
+      selectedTool,
+      characterFiles,
+      productFiles,
+      brandFiles
+    );
   };
 
   const handleReset = () => {
@@ -211,6 +218,7 @@ export default function HomePage() {
               <motion.div key="questions" variants={pageVariants} initial="initial" animate="animate" exit="exit">
                 <div style={{ maxWidth: 760, margin: "0 auto" }}>
                   <QuestionsView
+                    gaps={state.gaps}
                     questions={state.questions}
                     answers={state.answers}
                     onAnswerChange={setAnswer}

@@ -17,9 +17,46 @@ from app.schemas.generated_prompt import (
 from app.schemas.generation import GenerationResult
 from app.llm.claude_client import llm_service, LLMException
 from app.prompts.generation import GENERATION_PROMPT
+from app.prompts.tool_rules import get_tool_rules
 from app.validators.prompt_validation import validate_prompt_set
 
 logger = logging.getLogger(__name__)
+
+
+def _collect_entity_sources(spec, character_ids=None, location_id=None, product_ids=None) -> list[str]:
+    """Pull the `source` tag (USER/SCRIPT/REFERENCE_IMAGE/INFERRED/SYSTEM_DEFAULT)
+    off every specification entity relevant to a shot, so each generated prompt
+    can carry forward where its key visual details actually came from.
+
+    Defensive by design: specs, entities, or `source` fields may be missing or
+    shaped differently depending on how VideoSpecification evolves, so every
+    lookup degrades to "skip" rather than raising.
+    """
+    sources: set[str] = set()
+
+    def _add_source(entity) -> None:
+        if entity is None:
+            return
+        src = getattr(entity, "source", None)
+        if src:
+            sources.add(str(src))
+
+    characters = getattr(spec, "characters", None) or []
+    locations = getattr(spec, "locations", None) or []
+    products = getattr(spec, "products", None) or []
+
+    if character_ids:
+        for cid in character_ids:
+            _add_source(next((c for c in characters if getattr(c, "id", None) == cid), None))
+
+    if location_id:
+        _add_source(next((l for l in locations if getattr(l, "id", None) == location_id), None))
+
+    if product_ids:
+        for pid in product_ids:
+            _add_source(next((p for p in products if getattr(p, "id", None) == pid), None))
+
+    return sorted(sources)
 
 
 async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
@@ -37,12 +74,16 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
         }
 
     target_duration = spec.output_requirements.duration_seconds
+    tool = state.get("selected_tool", "Veo")
+    tool_rules = get_tool_rules(tool)
 
     prompt = GENERATION_PROMPT.format(
         video_specification=spec.model_dump_json(indent=2),
         total_duration=target_duration if target_duration is not None else "UNKNOWN",
+        target_tool=tool,
+        tool_specific_rules=tool_rules,
     )
-    logger.info(f"Final prompt length: {len(prompt)} characters")
+    logger.info(f"Final prompt length: {len(prompt)} characters (Tool: {tool})")
 
     try:
         result = await llm_service.generate_structured(
@@ -64,6 +105,10 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
 
     # 1. Convert GenerationResult scenes → MasterScenePlan
     scene_plans = []
+    # scene_id -> scene, used below to resolve each shot's location/character/product
+    # context when building source_traceability for its prompt.
+    scene_by_id = {}
+
     for gs in result.scenes:
         shots = []
         for sh in gs.shots:
@@ -110,6 +155,7 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
                 shots=shots,
             )
         )
+        scene_by_id[gs.scene_id] = gs
 
     master_plan = MasterScenePlan(
         scenes=scene_plans,
@@ -120,6 +166,14 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
     # 2. Convert GenerationResult prompts → PromptSet
     gen_prompts = []
     for gp in result.prompts:
+        gs = scene_by_id.get(gp.scene_id)
+        source_traceability = _collect_entity_sources(
+            spec,
+            character_ids=getattr(gs, "character_ids", None) if gs else None,
+            location_id=getattr(gs, "location_id", None) if gs else None,
+            product_ids=getattr(gs, "product_ids", None) if gs else None,
+        )
+
         gen_prompts.append(
             GeneratedPrompt(
                 prompt_id=gp.prompt_id,
@@ -130,6 +184,7 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
                 prompt_text=gp.prompt_text,
                 negative_constraints=gp.negative_constraints,
                 continuity_requirements=gp.continuity_requirements,
+                source_traceability=source_traceability,
                 source_actions=gp.source_actions,
             )
         )

@@ -19,6 +19,7 @@ def initialize_state(state: AgentState) -> AgentState:
         "actions": state.get("actions", []),
         "camera_requirements": state.get("camera_requirements", []),
         "lighting": state.get("lighting", []),
-        "reference_images": state.get("reference_images", []),
+        "reference_images": state.get("reference_images", {"character": [], "product": [], "brand": []}),
+        "selected_tool": state.get("selected_tool", "Veo"),
         "status": AgentStatus.ANALYZING,
     }

@@ -9,7 +9,7 @@ import pytest
 @pytest.mark.asyncio
 async def test_manual_integration():
     print("Ingesting script...")
-    script_doc = ScriptService.ingest_file("test_script.txt", "txt", "test_script.txt")
+    script_doc = await ScriptService.ingest_file("test_script.txt", "txt", "test_script.txt")
     print("Script ingested and normalized successfully.")
     
     graph = build_graph()

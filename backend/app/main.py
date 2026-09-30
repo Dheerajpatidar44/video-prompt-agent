@@ -13,6 +13,8 @@ setup_logging()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle events for FastAPI."""
+    from app.db.database import init_db
+    init_db()
     yield
     from app.llm.claude_client import LLMService
     await LLMService.close()

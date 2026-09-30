@@ -1,6 +1,7 @@
 from langgraph.graph import StateGraph, END
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+import os
 from app.graph.state import AgentState
 from app.graph.nodes.initialize_state import initialize_state
 from app.graph.nodes.analyze_script import analyze_script
@@ -77,7 +78,9 @@ ALLOWED_CHECKPOINT_TYPES = [
 ]
 
 
-def build_graph():
+serde = JsonPlusSerializer(allowed_msgpack_modules=ALLOWED_CHECKPOINT_TYPES)
+
+def build_graph(memory=None):
     workflow = StateGraph(AgentState)
 
     # Add nodes
@@ -119,6 +122,6 @@ def build_graph():
     workflow.add_edge("build_video_spec", "generate")
     workflow.add_edge("generate", END)
 
-    serde = JsonPlusSerializer(allowed_msgpack_modules=ALLOWED_CHECKPOINT_TYPES)
-    memory = MemorySaver(serde=serde)
-    return workflow.compile(checkpointer=memory, interrupt_before=["update_state"])
+    if memory:
+        return workflow.compile(checkpointer=memory, interrupt_before=["update_state"])
+    return workflow.compile(interrupt_before=["update_state"])

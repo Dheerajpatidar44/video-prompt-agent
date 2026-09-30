@@ -8,5 +8,8 @@ anthropic
 python-dotenv
 pytest
 httpx
-pypdf
+pdfplumber
 python-multipart
+cloudinary
+langgraph-checkpoint-sqlite
+aiosqlite

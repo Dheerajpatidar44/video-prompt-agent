@@ -114,34 +114,43 @@ export function ResultsView({ scenePlan, prompts, onReset }: ResultsViewProps) {
             <h3 style={{ fontSize: 18, fontWeight: 700 }}>Generated Prompts</h3>
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-            {prompts.prompts.map((prompt, idx) => (
-              <motion.div
-                key={prompt.prompt_id}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: idx * 0.05 }}
-                className="card"
-                style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14, position: "relative", overflow: "hidden" }}
-              >
-                <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: "linear-gradient(to bottom, #3b82f6, #8b5cf6)" }} />
+            {prompts.prompts.map((prompt, idx) => {
+              let fullPromptText = prompt.prompt_text;
+              if (prompt.negative_constraints) {
+                fullPromptText += `\n\nNegative: ${prompt.negative_constraints}`;
+              }
+              if (prompt.continuity_requirements && prompt.continuity_requirements.length > 0) {
+                fullPromptText += `\n\nContinuity: ${prompt.continuity_requirements.join(', ')}`;
+              }
 
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 99, background: "rgba(255,255,255,0.07)", color: "var(--color-text-secondary)" }}>
-                      Prompt {idx + 1}
-                    </span>
-                    <span style={{ fontSize: 12, color: "var(--color-text-muted)", padding: "3px 0" }}>
-                      {prompt.duration_seconds}s · {prompt.camera_parameters}
-                    </span>
+              return (
+                <motion.div
+                  key={prompt.prompt_id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: idx * 0.05 }}
+                  className="card"
+                  style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14, position: "relative", overflow: "hidden" }}
+                >
+                  <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: "linear-gradient(to bottom, #3b82f6, #8b5cf6)" }} />
+
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 99, background: "rgba(255,255,255,0.07)", color: "var(--color-text-secondary)" }}>
+                        Prompt {idx + 1}
+                      </span>
+                      <span style={{ fontSize: 12, color: "var(--color-text-muted)", padding: "3px 0" }}>
+                        {prompt.duration_seconds}s · {prompt.camera_parameters}
+                      </span>
+                    </div>
+                    <CopyButton text={fullPromptText} />
                   </div>
-                  <CopyButton text={prompt.prompt_text} />
-                </div>
 
-                <div style={{ background: "var(--color-bg-elevated)", borderRadius: 8, padding: "14px 16px", border: "1px solid var(--color-border-subtle)" }}>
-                  <p style={{ fontSize: 13, fontFamily: "monospace", lineHeight: 1.75, color: "rgba(255,255,255,0.85)" }}>
-                    {prompt.prompt_text}
-                  </p>
-                </div>
+                  <div style={{ background: "var(--color-bg-elevated)", borderRadius: 8, padding: "14px 16px", border: "1px solid var(--color-border-subtle)" }}>
+                    <p style={{ fontSize: 13, fontFamily: "monospace", lineHeight: 1.75, color: "rgba(255,255,255,0.85)", whiteSpace: "pre-wrap" }}>
+                      {fullPromptText}
+                    </p>
+                  </div>
 
                 {(prompt.style_modifiers || prompt.motion_parameters) && (
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
@@ -158,7 +167,8 @@ export function ResultsView({ scenePlan, prompts, onReset }: ResultsViewProps) {
                   </div>
                 )}
               </motion.div>
-            ))}
+            );
+          })}
           </div>
         </section>
       )}

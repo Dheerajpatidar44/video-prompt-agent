@@ -5,6 +5,7 @@ import type { AgentStatus, Question, MasterScenePlan, PromptSet } from "@/lib/ty
 export interface VideoAgentState {
   status: AgentStatus;
   threadId: string | null;
+  gaps: any[];
   questions: Question[];
   answers: Record<string, string>;
   scenePlan: MasterScenePlan | null;
@@ -17,6 +18,7 @@ export function useVideoAgent() {
   const [state, setState] = useState<VideoAgentState>({
     status: "IDLE",
     threadId: null,
+    gaps: [],
     questions: [],
     answers: {},
     scenePlan: null,
@@ -69,16 +71,47 @@ export function useVideoAgent() {
       } catch (err: any) {
         console.error("[Polling error]", err);
       }
-    }, 3000);
+    }, 5000);
 
     return () => clearInterval(interval);
   }, [state.threadId, state.status]);
 
-  const analyzeScript = async (file?: File, text?: string) => {
+  const analyzeScript = async (
+    file?: File,
+    text?: string,
+    tool?: string,
+    characterImages?: File[],
+    productImages?: File[],
+    brandImages?: File[]
+  ) => {
     try {
       setPartial({ status: "ANALYZING", error: null, isSubmitting: true });
-      const res = await ApiClient.analyzeScript(file, text);
-      setPartial({ threadId: res.thread_id, status: res.status, isSubmitting: false });
+      const res = await ApiClient.analyzeScript(file, text, tool, characterImages, productImages, brandImages);
+
+      let finalStatus = res.status as AgentStatus;
+      let loadedQuestions: Question[] = [];
+      let scenePlan = null;
+      let prompts = null;
+
+      if (finalStatus === "WAITING_FOR_USER") {
+        const qData = await ApiClient.getQuestions(res.thread_id);
+        loadedQuestions = qData.questions || [];
+      } else if (finalStatus === "COMPLETED") {
+        const spData = await ApiClient.getScenePlan(res.thread_id);
+        const pData = await ApiClient.getPrompts(res.thread_id);
+        scenePlan = spData.scene_plan;
+        prompts = pData.prompt_set;
+      }
+
+      setPartial({
+        threadId: res.thread_id,
+        status: finalStatus,
+        gaps: res.gaps || [],
+        questions: loadedQuestions,
+        scenePlan,
+        prompts,
+        isSubmitting: false
+      });
     } catch (err: any) {
       setPartial({ error: err.message || "Failed to analyze script", status: "ERROR", isSubmitting: false });
     }
@@ -93,8 +126,31 @@ export function useVideoAgent() {
         answer: state.answers[q.id] || "No answer provided",
         answer_type: q.answer_type,
       }));
-      await ApiClient.submitAnswers(state.threadId, formattedAnswers);
-      setPartial({ isSubmitting: false });
+      const res = await ApiClient.submitAnswers(state.threadId, formattedAnswers);
+
+      let finalStatus = res.status as AgentStatus;
+      let scenePlan = null;
+      let prompts = null;
+      let questions = state.questions;
+
+      if (finalStatus === "WAITING_FOR_USER") {
+        const qData = await ApiClient.getQuestions(state.threadId);
+        questions = qData.questions || [];
+      } else if (finalStatus === "COMPLETED") {
+        const spData = await ApiClient.getScenePlan(state.threadId);
+        const pData = await ApiClient.getPrompts(state.threadId);
+        scenePlan = spData.scene_plan;
+        prompts = pData.prompt_set;
+      }
+
+      setPartial({
+        status: finalStatus,
+        gaps: res.gaps || state.gaps,
+        questions,
+        ...(scenePlan && { scenePlan }),
+        ...(prompts && { prompts }),
+        isSubmitting: false
+      });
     } catch (err: any) {
       setPartial({ error: err.message || "Failed to submit answers", status: "ERROR", isSubmitting: false });
     }
@@ -108,6 +164,7 @@ export function useVideoAgent() {
     setState({
       status: "IDLE",
       threadId: null,
+      gaps: [],
       questions: [],
       answers: {},
       scenePlan: null,

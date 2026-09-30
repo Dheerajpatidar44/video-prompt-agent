@@ -11,7 +11,8 @@ logging.basicConfig(level=logging.WARNING)
 
 
 async def _run():
-    graph = build_graph()
+    from langgraph.checkpoint.memory import MemorySaver
+    graph = build_graph(MemorySaver())
     config = {"configurable": {"thread_id": "serde-real-execution-test"}}
 
     fake_gap = Gap(

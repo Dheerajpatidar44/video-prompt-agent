@@ -27,7 +27,8 @@ async def build_video_spec(state: AgentState) -> AgentState:
         script=original_script,
         analysis=json.dumps(analysis, indent=2),
         gaps=json.dumps(gaps_json, indent=2),
-        answers=json.dumps(answers_json, indent=2)
+        answers=json.dumps(answers_json, indent=2),
+        output_requirements="None specified by user."
     )
     
     try:
