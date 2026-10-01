@@ -31,7 +31,7 @@ def _collect_entity_sources(spec, character_ids=None, location_id=None, product_
     Defensive by design: specs, entities, or `source` fields may be missing or
     shaped differently depending on how VideoSpecification evolves, so every
     lookup degrades to "skip" rather than raising.
-    """
+    """  
     sources: set[str] = set()
 
     def _add_source(entity) -> None:
