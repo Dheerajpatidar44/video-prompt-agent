@@ -1,7 +1,7 @@
 import pytest
 from app.graph.state import AgentState
 from app.schemas.agent import Gap, Question, Importance, AgentStatus, GapStatus, QuestionStatus
-from app.graph.routing import route_after_gap_detection
+from app.graph.routing import route_after_analysis
 from app.graph.graph import build_graph
 from app.graph.nodes.initialize_state import initialize_state
 from app.graph.nodes.update_state import update_state
@@ -48,49 +48,20 @@ def test_gap_and_question_models():
     assert question.status == QuestionStatus.PENDING
 
 def test_routing_ask_questions():
-    # 7. Routing returns ASK_QUESTIONS only when CRITICAL gap exists AND current_round < max_rounds.
+    # 7. Routing returns WAIT_FOR_ANSWERS only when status == WAITING_FOR_USER
     state: AgentState = {
-        "current_round": 0,
-        "max_rounds": 2,
-        "gaps": [
-            Gap(
-                id="g1", category="CHARACTER", description="desc",
-                importance=Importance.CRITICAL, evidence="evidence", status=GapStatus.OPEN
-            )
-        ]
+        "status": AgentStatus.WAITING_FOR_USER
     }
-    route = route_after_gap_detection(state)
-    assert route == "ASK_QUESTIONS"
+    route = route_after_analysis(state)
+    assert route == "WAIT_FOR_ANSWERS"
 
-def test_routing_proceed_when_only_optional():
+def test_routing_proceed_when_analyzing():
     state: AgentState = {
-        "current_round": 0,
-        "max_rounds": 2,
-        "gaps": [
-            Gap(
-                id="g1", category="CHARACTER", description="desc",
-                importance=Importance.OPTIONAL, evidence="evidence", status=GapStatus.OPEN
-            )
-        ]
+        "status": AgentStatus.ANALYZING
     }
-    route = route_after_gap_detection(state)
+    route = route_after_analysis(state)
     assert route == "PROCEED"
 
-def test_routing_respects_max_rounds():
-    # 4. Maximum rounds are respected.
-    # 8. Routing function returns PROCEED once current_round reaches max_rounds, even if CRITICAL gaps still remain.
-    state: AgentState = {
-        "current_round": 2,
-        "max_rounds": 2,
-        "gaps": [
-            Gap(
-                id="g1", category="CHARACTER", description="desc",
-                importance=Importance.CRITICAL, evidence="evidence", status=GapStatus.OPEN
-            )
-        ]
-    }
-    route = route_after_gap_detection(state)
-    assert route == "PROCEED"
 
 from unittest.mock import patch, AsyncMock
 import pytest
@@ -107,11 +78,31 @@ async def test_graph_compiles_and_executes(mock_analyze, mock_build, mock_genera
     # Mock return values for LLMs
     from app.schemas.script import InitialAnalysisResult
     from app.schemas.specification import VideoSpecification
-    from app.schemas.generation import GenerationResult
+    from app.schemas.generation import GenerationResult, GeneratedScenePlan, GeneratedPromptItem, GeneratedShotPlan
     
     mock_analyze.generate_structured = AsyncMock(return_value=InitialAnalysisResult())
     mock_build.generate_structured = AsyncMock(return_value=VideoSpecification(project_id="test-1"))
-    mock_generate.generate_structured = AsyncMock(return_value=GenerationResult())
+    mock_generate.generate_structured = AsyncMock(return_value=GenerationResult(
+        scenes=[
+            GeneratedScenePlan(
+                scene_id="s1", scene_number=1, title="title", purpose="purpose",
+                narrative_role="ACTION", start_time=0.0, end_time=1.0, duration_seconds=1.0,
+                location_id="loc", character_ids=[], product_ids=[],
+                shots=[GeneratedShotPlan(
+                    shot_id="shot1", shot_number=1, scene_id="s1", start_time=0.0, end_time=1.0,
+                    duration_seconds=1.0, purpose="purpose", subject="subject",
+                    action="action", framing="framing", camera_movement="none", source_actions=[]
+                )]
+            )
+        ],
+        prompts=[
+            GeneratedPromptItem(
+                prompt_id="p1", scene_id="s1", shot_id="shot1", sequence_number=1,
+                duration_seconds=1.0, prompt_text="A prompt", negative_constraints="",
+                continuity_requirements=[], source_actions=[]
+            )
+        ]
+    ))
 
     graph = build_graph()
     
@@ -122,4 +113,5 @@ async def test_graph_compiles_and_executes(mock_analyze, mock_build, mock_genera
     config = {"configurable": {"thread_id": "1"}}
     final_state = await graph.ainvoke(initial_state, config)
     
-    assert final_state["status"] == AgentStatus.VALIDATING
+    # Wait, the final status is now COMPLETED because we returned a valid prompt_set
+    assert final_state["status"] == AgentStatus.COMPLETED

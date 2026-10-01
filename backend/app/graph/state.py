@@ -9,7 +9,8 @@ class AgentState(TypedDict):
     project_id: Optional[str]
     original_script: Optional[str]
     script_source: Optional[str]
-    reference_images: List[str]
+    reference_images: Dict[str, List[str]]
+    selected_tool: Optional[str]
     
     # Processed script representation
     analysis: Dict[str, Any]

@@ -1,7 +1,7 @@
 """Combined schema for the generation phase: scenes + prompts in one LLM call."""
 from pydantic import BaseModel
 from typing import Optional, List
-
+ 
 
 class GeneratedShotPlan(BaseModel):
     shot_id: str

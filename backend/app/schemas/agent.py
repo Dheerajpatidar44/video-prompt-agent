@@ -67,6 +67,7 @@ class Gap(BaseModel):
 class GapDetectionResult(BaseModel):
     gaps: List[Gap] = []
 
+
 class Question(BaseModel):
     id: str
     gap_ids: List[str] = []
@@ -81,6 +82,13 @@ class Question(BaseModel):
     status: QuestionStatus = QuestionStatus.PENDING
 
 class QuestionGenerationResult(BaseModel):
+    questions: List[Question] = []
+
+class ReAnalysisResult(BaseModel):
+    """Combined schema for the re_analyze LLM call: re-evaluated gaps +
+    any new clarifying questions for gaps still open after the user's
+    answers."""
+    gaps: List[Gap] = []
     questions: List[Question] = []
 
 class Answer(BaseModel):

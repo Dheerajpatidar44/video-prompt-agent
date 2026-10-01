@@ -7,12 +7,7 @@ class PromptStatus(str, Enum):
     READY = "READY"
     BLOCKED = "BLOCKED"
 
-class ValidationIssue(BaseModel):
-    issue_type: str
-    description: str
-    severity: str
-    related_entity_id: Optional[str] = None
-    blocking: bool = False
+from app.schemas.scene_plan import ValidationIssue
 
 class GeneratedPrompt(BaseModel):
     prompt_id: str

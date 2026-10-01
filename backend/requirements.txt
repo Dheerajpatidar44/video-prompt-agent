@@ -4,9 +4,12 @@ langgraph
 langchain-core
 pydantic
 pydantic-settings
-ollama
+anthropic
 python-dotenv
 pytest
 httpx
-pypdf
+pdfplumber
 python-multipart
+cloudinary
+langgraph-checkpoint-sqlite
+aiosqlite
