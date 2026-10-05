@@ -308,8 +308,14 @@ async def get_prompts(thread_id: str):
     prompt_set = state.get("prompt_set")
     if not prompt_set:
         raise HTTPException(status_code=404, detail="Prompts not yet generated.")
-    return {
+    res = {
         "thread_id": thread_id,
         "prompt_set": prompt_set.model_dump() if hasattr(prompt_set, "model_dump") else prompt_set,
         "status": state.get("status"),
     }
+    
+    review_report = state.get("review_report")
+    if review_report:
+        res["review_report"] = review_report.model_dump() if hasattr(review_report, "model_dump") else review_report
+        
+    return res

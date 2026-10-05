@@ -63,7 +63,7 @@ async def test_build_video_spec_ready(mock_llm):
     }
     
     new_state = await build_video_spec(state)
-    assert new_state["status"] == AgentStatus.VALIDATING
+    assert new_state["status"] == AgentStatus.GENERATING
     assert new_state["video_specification"].status == SpecStatus.READY
 
 @patch('app.graph.nodes.build_video_spec.llm_service')

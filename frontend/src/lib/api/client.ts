@@ -95,7 +95,7 @@ export class ApiClient {
     return this.handleResponse(response);
   }
 
-  static async getPrompts(threadId: string): Promise<{ thread_id: string; prompt_set: PromptSet; status: string }> {
+  static async getPrompts(threadId: string): Promise<{ thread_id: string; prompt_set: PromptSet; status: string; review_report?: any }> {
     const response = await fetch(`${API_BASE_URL}/scripts/${threadId}/prompts`);
     return this.handleResponse(response);
   }

@@ -10,6 +10,7 @@ export interface VideoAgentState {
   answers: Record<string, string>;
   scenePlan: MasterScenePlan | null;
   prompts: PromptSet | null;
+  reviewReport: any | null;
   error: string | null;
   isSubmitting: boolean;
 }
@@ -23,6 +24,7 @@ export function useVideoAgent() {
     answers: {},
     scenePlan: null,
     prompts: null,
+    reviewReport: null,
     error: null,
     isSubmitting: false,
   });
@@ -42,7 +44,7 @@ export function useVideoAgent() {
           const qData = await ApiClient.getQuestions(threadId);
           if (qData.status === "WAITING_FOR_USER") {
             setPartial({ questions: qData.questions, status: "WAITING_FOR_USER" });
-          } else if (["PLANNING", "GENERATING", "COMPLETED"].includes(qData.status)) {
+          } else if (["PLANNING", "GENERATING", "REVIEWING", "COMPLETED"].includes(qData.status)) {
             setPartial({ status: qData.status as AgentStatus });
           }
         }
@@ -61,8 +63,25 @@ export function useVideoAgent() {
         if (status === "GENERATING") {
           try {
             const pData = await ApiClient.getPrompts(threadId);
-            if (pData.prompt_set) {
+            if (pData.status === "REVIEWING") {
+              setPartial({ status: "REVIEWING" });
+            } else if (pData.status === "COMPLETED" && pData.prompt_set) {
               setPartial({ prompts: pData.prompt_set, status: "COMPLETED" });
+            }
+          } catch (_) {
+            // Not ready yet
+          }
+        }
+
+        if (status === "REVIEWING") {
+          try {
+            const pData = await ApiClient.getPrompts(threadId);
+            if (pData.status === "COMPLETED" && pData.prompt_set) {
+              setPartial({
+                prompts: pData.prompt_set,
+                reviewReport: pData.review_report || null,
+                status: "COMPLETED"
+              });
             }
           } catch (_) {
             // Not ready yet
@@ -101,6 +120,7 @@ export function useVideoAgent() {
         const pData = await ApiClient.getPrompts(res.thread_id);
         scenePlan = spData.scene_plan;
         prompts = pData.prompt_set;
+        setPartial({ reviewReport: pData.review_report || null });
       }
 
       setPartial({
@@ -141,6 +161,7 @@ export function useVideoAgent() {
         const pData = await ApiClient.getPrompts(state.threadId);
         scenePlan = spData.scene_plan;
         prompts = pData.prompt_set;
+        setPartial({ reviewReport: pData.review_report || null });
       }
 
       setPartial({
@@ -169,6 +190,7 @@ export function useVideoAgent() {
       answers: {},
       scenePlan: null,
       prompts: null,
+      reviewReport: null,
       error: null,
       isSubmitting: false,
     });

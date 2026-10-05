@@ -4,7 +4,7 @@ export type AgentStatus =
   | 'WAITING_FOR_USER' 
   | 'PLANNING' 
   | 'GENERATING' 
-  | 'VALIDATING' 
+  | 'REVIEWING' 
   | 'COMPLETED' 
   | 'ERROR';
 

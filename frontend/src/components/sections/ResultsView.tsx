@@ -2,12 +2,13 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { CheckCircle2, Film, Wand2, Clock, Copy, Check } from "lucide-react";
+import { CheckCircle2, Film, Wand2, Clock, Copy, Check, ShieldCheck } from "lucide-react";
 import type { MasterScenePlan, PromptSet } from "@/lib/types";
 
 interface ResultsViewProps {
   scenePlan: MasterScenePlan | null;
   prompts: PromptSet | null;
+  reviewReport?: any | null;
   onReset: () => void;
 }
 
@@ -43,7 +44,7 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function ResultsView({ scenePlan, prompts, onReset }: ResultsViewProps) {
+export function ResultsView({ scenePlan, prompts, reviewReport, onReset }: ResultsViewProps) {
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 40 }}>
       {/* Success Banner */}
@@ -71,6 +72,7 @@ export function ResultsView({ scenePlan, prompts, onReset }: ResultsViewProps) {
           <strong style={{ color: "var(--color-text-primary)" }}>{scenePlan?.scenes.length ?? 0} scenes</strong> and{" "}
           <strong style={{ color: "var(--color-text-primary)" }}>{prompts?.prompts.length ?? 0} optimized prompts</strong>.
         </p>
+        
       </motion.div>
 
       {/* Scene Plan */}
@@ -109,9 +111,19 @@ export function ResultsView({ scenePlan, prompts, onReset }: ResultsViewProps) {
       {/* Prompts */}
       {prompts && prompts.prompts.length > 0 && (
         <section style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12, borderBottom: "1px solid var(--color-border-subtle)" }}>
-            <Wand2 size={20} color="#8b5cf6" />
-            <h3 style={{ fontSize: 18, fontWeight: 700 }}>Generated Prompts</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: 12, borderBottom: "1px solid var(--color-border-subtle)" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Wand2 size={20} color="#8b5cf6" />
+              <h3 style={{ fontSize: 18, fontWeight: 700 }}>Generated Prompts</h3>
+            </div>
+            {reviewReport && (
+              <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "4px 10px", borderRadius: 99, background: "rgba(34,197,94,0.1)", border: "1px solid rgba(34,197,94,0.2)" }}>
+                <ShieldCheck size={14} color="#22c55e" />
+                <span style={{ fontSize: 12, fontWeight: 600, color: "#22c55e" }}>
+                  QA {reviewReport.status.replace(/_/g, " ")}
+                </span>
+              </div>
+            )}
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {prompts.prompts.map((prompt, idx) => {
@@ -172,7 +184,7 @@ export function ResultsView({ scenePlan, prompts, onReset }: ResultsViewProps) {
           </div>
         </section>
       )}
-
+ 
       {/* Reset */}
       <div style={{ display: "flex", justifyContent: "center", paddingTop: 16 }}>
         <button

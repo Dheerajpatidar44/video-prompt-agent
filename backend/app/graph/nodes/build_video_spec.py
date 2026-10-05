@@ -87,5 +87,5 @@ async def build_video_spec(state: AgentState) -> AgentState:
     return {
         **state,
         "video_specification": spec,
-        "status": AgentStatus.VALIDATING
+        "status": AgentStatus.GENERATING
     }

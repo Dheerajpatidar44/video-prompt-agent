@@ -56,7 +56,8 @@ export default function HomePage() {
   const isLoading =
     state.status === "ANALYZING" ||
     state.status === "PLANNING" ||
-    state.status === "GENERATING";
+    state.status === "GENERATING" ||
+    state.status === "REVIEWING";
 
   const canGenerate = (scriptText.trim().length > 0 || uploadedFile !== null) && !isLoading;
 
@@ -203,7 +204,9 @@ export default function HomePage() {
                       ? "Analyzing your script..."
                       : state.status === "PLANNING"
                         ? "Drafting master scene plan..."
-                        : "Generating visual prompts..."}
+                        : state.status === "GENERATING"
+                          ? "Generating visual prompts..."
+                          : "Reviewing and polishing prompts..."}
                   </h2>
                   <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
                     Our multi-agent system is working on your project.
@@ -229,11 +232,10 @@ export default function HomePage() {
               </motion.div>
             )}
 
-            {/* ---- Results ---- */}
             {state.status === "COMPLETED" && (
               <motion.div key="results" variants={pageVariants} initial="initial" animate="animate" exit="exit">
                 <div style={{ maxWidth: 1000, margin: "0 auto" }}>
-                  <ResultsView scenePlan={state.scenePlan} prompts={state.prompts} onReset={handleReset} />
+                  <ResultsView scenePlan={state.scenePlan} prompts={state.prompts} reviewReport={state.reviewReport} onReset={handleReset} />
                 </div>
               </motion.div>
             )}

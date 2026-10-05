@@ -13,3 +13,4 @@ python-multipart
 cloudinary
 langgraph-checkpoint-sqlite
 aiosqlite
+rapidfuzz
