@@ -14,3 +14,4 @@ cloudinary
 langgraph-checkpoint-sqlite
 aiosqlite
 rapidfuzz
+ffmpeg-python

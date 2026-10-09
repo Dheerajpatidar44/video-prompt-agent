@@ -1,16 +1,23 @@
 import pdfplumber
 import pypdfium2 as pdfium
 import base64
+import os
 from io import BytesIO
 from app.llm.claude_client import llm_service
 
 class PDFParser:
     @staticmethod
     async def parse(file_path: str) -> str:
+        # 1. File Size Validation (Max 50MB) to prevent memory crash
+        file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
+        if file_size_mb > 50:
+            raise ValueError(f"File size ({file_size_mb:.1f}MB) exceeds the maximum allowed size of 50MB.")
+
         text = PDFParser._extract_with_pdfplumber(file_path)
 
-        # If pdfplumber didn't extract enough meaningful text (e.g., less than 50 chars)
-        if not text or len(text.strip()) < 50:
+        # 2. Smart Length Checking: If text is extremely short (less than 15 chars), 
+        # it might be an image-only PDF, so fallback to vision.
+        if not text or len(text.strip()) < 15:
             text = await PDFParser._extract_with_vision(file_path)
 
         if not text or not text.strip():
@@ -26,7 +33,13 @@ class PDFParser:
         try:
             with pdfplumber.open(file_path) as pdf:
                 for page in pdf.pages:
-                    page_text = page.extract_text()
+                    # 3. Use layout=True to preserve table structures and prevent columns from mixing
+                    page_text = page.extract_text(layout=True)
+                    
+                    # If layout extraction fails or returns nothing, fallback to standard extraction
+                    if not page_text or not page_text.strip():
+                        page_text = page.extract_text()
+                        
                     if page_text:
                         text += page_text + "\n\n"
         except Exception as e:
@@ -43,6 +56,9 @@ class PDFParser:
             
             # Limit to first 10 pages to avoid massive token consumption if someone uploads a huge PDF
             max_pages = min(len(pdf), 10)
+            
+            if len(pdf) > 10:
+                print(f"Warning: PDF has {len(pdf)} pages. AI Vision OCR is limited to the first 10 pages to prevent excessive costs.")
             
             for i in range(max_pages):
                 page = pdf[i]

@@ -45,6 +45,9 @@ class AgentState(TypedDict):
     generated_prompts: List[str]
     validation_results: Dict[str, Any]
     
+    video_generation_status: Optional[str]  # e.g. "IN_PROGRESS", "COMPLETED", "PARTIAL_FAILURE"
+    final_video_url: Optional[str]
+    
     # Status
     status: AgentStatus
     error: Optional[str]

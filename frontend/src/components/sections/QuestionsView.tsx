@@ -22,24 +22,15 @@ const priorityColor: Record<string, string> = {
 
 export function QuestionsView({ gaps = [], questions, answers, onAnswerChange, onSubmit, isSubmitting }: QuestionsViewProps) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+    <div className="flex flex-col gap-5">
       {/* Info Banner */}
-      <div
-        style={{
-          display: "flex",
-          gap: 14,
-          padding: "16px 20px",
-          background: "rgba(59,130,246,0.08)",
-          border: "1px solid rgba(59,130,246,0.2)",
-          borderRadius: 12,
-        }}
-      >
-        <AlertCircle size={20} color="#3b82f6" style={{ flexShrink: 0, marginTop: 1 }} />
+      <div className="flex gap-3.5 px-5 py-4 bg-blue-500/10 border border-blue-500/20 rounded-xl">
+        <AlertCircle size={20} color="#3b82f6" className="shrink-0 mt-[1px]" />
         <div>
-          <p style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text-primary)", marginBottom: 4 }}>
+          <p className="text-[14px] font-semibold text-[var(--color-text-primary)] mb-1">
             I need a few clarifications
           </p>
-          <p style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.6 }}>
+          <p className="text-[13px] text-[var(--color-text-secondary)] leading-[1.6]">
             To generate the most accurate video plan, please answer these questions based on the analysis of your script.
           </p>
         </div>
@@ -47,47 +38,37 @@ export function QuestionsView({ gaps = [], questions, answers, onAnswerChange, o
 
       {/* Gaps Section */}
       {gaps.length > 0 && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 8 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 600, color: "var(--color-text-primary)", marginLeft: 4 }}>
+        <div className="flex flex-col gap-3 mb-2">
+          <h3 className="text-[16px] font-semibold text-[var(--color-text-primary)] ml-1">
             Issues Identified in Script
           </h3>
-          <div style={{ display: "grid", gap: 10 }}>
+          <div className="grid gap-2.5">
             {gaps.map((gap, idx) => (
               <motion.div
                 key={idx}
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: idx * 0.05 }}
+                className="px-[18px] py-[14px] bg-[var(--color-bg-elevated)] rounded-lg border-t border-r border-b border-[var(--color-border-subtle)] border-l-4 flex flex-col gap-1.5"
                 style={{
-                  padding: "14px 18px",
-                  background: "var(--color-bg-elevated)",
-                  borderLeft: `4px solid ${priorityColor[gap.importance] || "#3b82f6"}`,
-                  borderRadius: "8px",
-                  borderTop: "1px solid var(--color-border-subtle)",
-                  borderRight: "1px solid var(--color-border-subtle)",
-                  borderBottom: "1px solid var(--color-border-subtle)",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 6,
+                  borderLeftColor: priorityColor[gap.importance] || "#3b82f6",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                  <span style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text-primary)" }}>
+                <div className="flex justify-between items-center">
+                  <span className="text-[14px] font-semibold text-[var(--color-text-primary)]">
                     {gap.title}
                   </span>
-                  <span style={{
-                    fontSize: 10,
-                    fontWeight: 700,
-                    padding: "2px 8px",
-                    borderRadius: 99,
-                    color: priorityColor[gap.importance] || "#3b82f6",
-                    background: `${priorityColor[gap.importance] || "#3b82f6"}1a`,
-                    textTransform: "uppercase"
-                  }}>
+                  <span
+                    className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase"
+                    style={{
+                      color: priorityColor[gap.importance] || "#3b82f6",
+                      backgroundColor: `${priorityColor[gap.importance] || "#3b82f6"}1a`,
+                    }}
+                  >
                     {gap.importance}
                   </span>
                 </div>
-                <p style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.5 }}>
+                <p className="text-[13px] text-[var(--color-text-secondary)] leading-[1.5]">
                   {gap.description}
                 </p>
               </motion.div>
@@ -103,41 +84,25 @@ export function QuestionsView({ gaps = [], questions, answers, onAnswerChange, o
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: idx * 0.07 }}
-          className="card"
-          style={{ padding: "20px 24px", display: "flex", flexDirection: "column", gap: 14 }}
+          className="card px-6 py-5 flex flex-col gap-3.5"
         >
-          <div style={{ display: "flex", alignItems: "flex-start", gap: 12 }}>
-            <span
-              style={{
-                width: 26,
-                height: 26,
-                borderRadius: "50%",
-                background: "var(--color-bg-overlay)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                fontSize: 12,
-                fontWeight: 700,
-                color: "var(--color-text-muted)",
-                flexShrink: 0,
-              }}
-            >
+          <div className="flex items-start gap-3">
+            <span className="w-[26px] h-[26px] rounded-full bg-[var(--color-bg-overlay)] flex items-center justify-center text-[12px] font-bold text-[var(--color-text-muted)] shrink-0">
               {idx + 1}
             </span>
-            <div style={{ flex: 1 }}>
-              <p style={{ fontSize: 14, fontWeight: 500, color: "var(--color-text-primary)", lineHeight: 1.5, marginBottom: 6 }}>
+            <div className="flex-1">
+              <p className="text-[14px] font-medium text-[var(--color-text-primary)] leading-[1.5] mb-1.5">
                 {q.question}
               </p>
             </div>
           </div>
 
           <textarea
-            className="input-area"
+            className="input-area w-full px-3.5 py-3 text-[13px] leading-[1.6]"
             placeholder="Your answer..."
             rows={3}
             value={answers[q.id] || ""}
             onChange={(e) => onAnswerChange(q.id, e.target.value)}
-            style={{ width: "100%", padding: "12px 14px", fontSize: 13, lineHeight: 1.6 }}
           />
         </motion.div>
       ))}
@@ -146,11 +111,10 @@ export function QuestionsView({ gaps = [], questions, answers, onAnswerChange, o
       <button
         onClick={onSubmit}
         disabled={isSubmitting}
-        className="btn-primary"
-        style={{ padding: "14px 24px", fontSize: 15, marginTop: 8 }}
+        className="btn-primary px-6 py-3.5 text-[15px] mt-2 flex justify-center items-center gap-2"
       >
         {isSubmitting ? (
-          <Loader2 size={18} style={{ animation: "spin 1s linear infinite" }} />
+          <Loader2 size={18} className="animate-spin" />
         ) : (
           <>
             Submit Answers & Generate Plan
@@ -158,8 +122,6 @@ export function QuestionsView({ gaps = [], questions, answers, onAnswerChange, o
           </>
         )}
       </button>
-
-      <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 }

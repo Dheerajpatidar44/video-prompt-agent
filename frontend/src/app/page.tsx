@@ -12,6 +12,7 @@ import { VideoToolSelector } from "@/components/sections/VideoToolSelector";
 
 import { QuestionsView } from "@/components/sections/QuestionsView";
 import { ResultsView } from "@/components/sections/ResultsView";
+import { FinalVideoView } from "@/components/sections/FinalVideoView";
 import { useVideoAgent } from "@/hooks/useVideoAgent";
 
 const pageVariants = {
@@ -28,6 +29,8 @@ export default function HomePage() {
   const [productFiles, setProductFiles] = useState<File[]>([]);
   const [brandFiles, setBrandFiles] = useState<File[]>([]);
   const [selectedTool, setSelectedTool] = useState<any>("Veo");
+  const [showFinalVideo, setShowFinalVideo] = useState(false);
+  const [videoGenerating, setVideoGenerating] = useState(false);
 
   // Agent Logic
   const { state, analyzeScript, submitAnswers, setAnswer, reset } = useVideoAgent();
@@ -51,60 +54,40 @@ export default function HomePage() {
     setCharacterFiles([]);
     setProductFiles([]);
     setBrandFiles([]);
+    setShowFinalVideo(false);
+    setVideoGenerating(false);
   };
 
   const isLoading =
     state.status === "ANALYZING" ||
     state.status === "PLANNING" ||
     state.status === "GENERATING" ||
-    state.status === "REVIEWING";
+    state.status === "REVIEWING" ||
+    videoGenerating;
 
   const canGenerate = (scriptText.trim().length > 0 || uploadedFile !== null) && !isLoading;
 
   return (
-    <div
-      style={{
-        display: "flex",
-        height: "100vh",
-        overflow: "hidden",
-        background: "var(--color-bg-base)",
-      }}
-    >
+    <div className="flex h-screen overflow-hidden bg-[var(--color-bg-base)]">
       <Sidebar />
 
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0 }}>
+      <div className="flex-1 flex flex-col min-w-0">
         <Header />
 
-        <main
-          style={{
-            flex: 1,
-            padding: "24px 28px 40px",
-            overflowY: "auto",
-            minWidth: 0,
-          }}
-        >
+        <main className={`flex-1 overflow-y-auto min-w-0 ${showFinalVideo ? "p-0" : "px-7 pt-6 pb-10"}`}>
           <AnimatePresence mode="wait">
+            {showFinalVideo && (
+               <motion.div key="final_video" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="h-full">
+                 <FinalVideoView />
+               </motion.div>
+            )}
+
             {/* ---- Main Input Form ---- */}
-            {state.status === "IDLE" && (
+            {state.status === "IDLE" && !showFinalVideo && (
               <motion.div key="form" variants={pageVariants} initial="initial" animate="animate" exit="exit">
-                <div
-                  style={{
-                    maxWidth: 1100,
-                    margin: "0 auto",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 20,
-                  }}
-                >
+                <div className="max-w-[1100px] mx-auto flex flex-col gap-5">
                   {/* Reference Uploads & Tool Selector: 4 equal columns */}
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(4, 1fr)",
-                      gap: 16,
-                      alignItems: "stretch",
-                    }}
-                  >
+                  <div className="grid grid-cols-4 gap-4 items-stretch">
                     <ReferenceUploads
                       characterFiles={characterFiles}
                       productFiles={productFiles}
@@ -129,20 +112,11 @@ export default function HomePage() {
                     id="generate-btn"
                     onClick={handleGenerate}
                     disabled={!canGenerate}
-                    className="btn-primary"
-                    style={{
-                      padding: "16px 40px",
-                      fontSize: 16,
-                      borderRadius: 12,
-                      opacity: canGenerate ? 1 : 0.5,
-                      cursor: canGenerate ? "pointer" : "not-allowed",
-                      alignSelf: "center",
-                      marginTop: 12,
-                    }}
+                    className={`btn-primary px-10 py-4 text-base rounded-xl self-center mt-3 flex items-center gap-2 ${canGenerate ? "opacity-100 cursor-pointer" : "opacity-50 cursor-not-allowed"}`}
                   >
                     <Sparkles size={20} />
                     Generate Video Prompt
-                    <span style={{ marginLeft: 4, opacity: 0.8 }}>→</span>
+                    <span className="ml-1 opacity-80">→</span>
                   </button>
                 </div>
               </motion.div>
@@ -156,70 +130,37 @@ export default function HomePage() {
                 initial="initial"
                 animate="animate"
                 exit="exit"
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minHeight: "60vh",
-                  gap: 24,
-                  textAlign: "center",
-                }}
+                className="flex flex-col items-center justify-center min-h-[60vh] gap-6 text-center"
               >
-                <div style={{ position: "relative" }}>
-                  <div
-                    style={{
-                      width: 80,
-                      height: 80,
-                      borderRadius: "50%",
-                      border: "3px solid rgba(59,130,246,0.15)",
-                      borderTop: "3px solid #3b82f6",
-                      animation: "spin 1s linear infinite",
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
+                <div className="relative">
+                  <div className="w-20 h-20 rounded-full border-[3px] border-blue-500/15 border-t-blue-500 animate-spin" />
+                  <div className="absolute inset-0 flex items-center justify-center">
                     <Sparkles size={28} color="#3b82f6" />
                   </div>
                 </div>
                 <div>
-                  <h2
-                    style={{
-                      fontSize: 24,
-                      fontWeight: 700,
-                      background: "linear-gradient(135deg, #3b82f6, #8b5cf6)",
-                      WebkitBackgroundClip: "text",
-                      WebkitTextFillColor: "transparent",
-                      marginBottom: 8,
-                    }}
-                  >
-                    {state.status === "ANALYZING"
-                      ? "Analyzing your script..."
-                      : state.status === "PLANNING"
-                        ? "Drafting master scene plan..."
-                        : state.status === "GENERATING"
-                          ? "Generating visual prompts..."
-                          : "Reviewing and polishing prompts..."}
+                  <h2 className="text-2xl font-bold bg-gradient-to-br from-blue-500 to-violet-500 bg-clip-text text-transparent mb-2">
+                    {videoGenerating
+                      ? "Generating your final video..."
+                      : state.status === "ANALYZING"
+                        ? "Analyzing your script..."
+                        : state.status === "PLANNING"
+                          ? "Drafting master scene plan..."
+                          : state.status === "GENERATING"
+                            ? "Generating visual prompts..."
+                            : "Reviewing and polishing prompts..."}
                   </h2>
-                  <p style={{ color: "var(--color-text-secondary)", fontSize: 14 }}>
+                  <p className="text-[var(--color-text-secondary)] text-sm">
                     Our multi-agent system is working on your project.
                   </p>
                 </div>
-                <style>{`@keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
               </motion.div>
             )}
 
             {/* ---- Questions ---- */}
             {state.status === "WAITING_FOR_USER" && (
               <motion.div key="questions" variants={pageVariants} initial="initial" animate="animate" exit="exit">
-                <div style={{ maxWidth: 760, margin: "0 auto" }}>
+                <div className="max-w-[760px] mx-auto">
                   <QuestionsView
                     gaps={state.gaps}
                     questions={state.questions}
@@ -232,10 +173,22 @@ export default function HomePage() {
               </motion.div>
             )}
 
-            {state.status === "COMPLETED" && (
+            {state.status === "COMPLETED" && !showFinalVideo && !videoGenerating && (
               <motion.div key="results" variants={pageVariants} initial="initial" animate="animate" exit="exit">
-                <div style={{ maxWidth: 1000, margin: "0 auto" }}>
-                  <ResultsView scenePlan={state.scenePlan} prompts={state.prompts} reviewReport={state.reviewReport} onReset={handleReset} />
+                <div className="max-w-[1000px] mx-auto">
+                  <ResultsView 
+                    scenePlan={state.scenePlan} 
+                    prompts={state.prompts} 
+                    reviewReport={state.reviewReport} 
+                    onReset={handleReset} 
+                    onGenerateVideo={() => {
+                      setVideoGenerating(true);
+                      setTimeout(() => {
+                        setVideoGenerating(false);
+                        setShowFinalVideo(true);
+                      }, 3000);
+                    }} 
+                  />
                 </div>
               </motion.div>
             )}
@@ -248,40 +201,16 @@ export default function HomePage() {
                 initial="initial"
                 animate="animate"
                 exit="exit"
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  minHeight: "50vh",
-                  gap: 16,
-                  textAlign: "center",
-                }}
+                className="flex flex-col items-center justify-center min-h-[50vh] gap-4 text-center"
               >
-                <div
-                  style={{
-                    padding: 20,
-                    background: "rgba(239,68,68,0.1)",
-                    borderRadius: "50%",
-                  }}
-                >
+                <div className="p-5 bg-red-500/10 rounded-full">
                   <AlertCircle size={40} color="#ef4444" />
                 </div>
-                <h3 style={{ fontSize: 20, fontWeight: 700 }}>Something went wrong</h3>
-                <p style={{ color: "var(--color-text-secondary)", maxWidth: 420 }}>{state.error}</p>
+                <h3 className="text-xl font-bold">Something went wrong</h3>
+                <p className="text-[var(--color-text-secondary)] max-w-[420px]">{state.error}</p>
                 <button
                   onClick={handleReset}
-                  style={{
-                    marginTop: 8,
-                    padding: "12px 28px",
-                    borderRadius: 10,
-                    background: "#ef4444",
-                    color: "white",
-                    border: "none",
-                    fontWeight: 600,
-                    fontSize: 14,
-                    cursor: "pointer",
-                  }}
+                  className="mt-2 px-7 py-3 rounded-xl bg-red-500 text-white font-semibold text-sm cursor-pointer border-none hover:bg-red-600 transition-colors"
                 >
                   Try Again
                 </button>
