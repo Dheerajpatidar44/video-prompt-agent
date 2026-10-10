@@ -13,6 +13,8 @@ export interface VideoAgentState {
   reviewReport: any | null;
   error: string | null;
   isSubmitting: boolean;
+  videoStatus: string | null;
+  finalVideoUrl: string | null;
 }
 
 export function useVideoAgent() {
@@ -27,6 +29,8 @@ export function useVideoAgent() {
     reviewReport: null,
     error: null,
     isSubmitting: false,
+    videoStatus: null,
+    finalVideoUrl: null,
   });
 
   const setPartial = (partial: Partial<VideoAgentState>) =>
@@ -34,9 +38,10 @@ export function useVideoAgent() {
 
   // Polling
   useEffect(() => {
-    const { threadId, status } = state;
+    const { threadId, status, videoStatus } = state;
     if (!threadId) return;
-    if (["IDLE", "WAITING_FOR_USER", "ERROR", "COMPLETED"].includes(status)) return;
+    if (["IDLE", "WAITING_FOR_USER", "ERROR"].includes(status)) return;
+    if (status === "COMPLETED" && videoStatus === "COMPLETED") return;
 
     const interval = setInterval(async () => {
       try {
@@ -82,6 +87,25 @@ export function useVideoAgent() {
                 reviewReport: pData.review_report || null,
                 status: "COMPLETED"
               });
+            }
+          } catch (_) {
+            // Not ready yet
+          }
+        }
+
+        if (status === "COMPLETED" && videoStatus !== "COMPLETED") {
+          try {
+            const vData = await ApiClient.getVideoStatus(threadId);
+            const fallbackUrl = vData.jobs?.find((j: any) => j.status === "COMPLETED")?.video_url;
+            
+            if (vData.final_video_url || fallbackUrl) {
+              setPartial({ 
+                videoStatus: vData.status, 
+                finalVideoUrl: vData.final_video_url || fallbackUrl 
+              });
+            } else if (vData.status === "COMPLETED" || vData.status === "PARTIAL_FAILURE") {
+              // No video could be generated at all
+              setPartial({ videoStatus: vData.status, finalVideoUrl: null });
             }
           } catch (_) {
             // Not ready yet
@@ -193,6 +217,8 @@ export function useVideoAgent() {
       reviewReport: null,
       error: null,
       isSubmitting: false,
+      videoStatus: null,
+      finalVideoUrl: null,
     });
 
   return { state, analyzeScript, submitAnswers, setAnswer, reset };

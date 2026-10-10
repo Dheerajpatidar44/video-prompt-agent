@@ -14,6 +14,16 @@ class VideoGenerationError(Exception):
     pass
 
 
+class TransientVideoError(VideoGenerationError):
+    """Temporary problem (network, timeout, 429, 5xx). The job may still be alive
+    at the provider. Callers must NOT resubmit because of this error."""
+
+
+class PermanentVideoError(VideoGenerationError):
+    """The provider definitively rejected the request or does not know the job
+    (auth failure, invalid params, insufficient balance, unknown job id)."""
+
+
 class VideoGenerationClient(ABC):
 
     @abstractmethod

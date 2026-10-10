@@ -19,6 +19,7 @@ from typing import Optional
 from app.services.video_generation.base_client import (
     VideoGenerationClient,
     VideoGenerationError,
+    PermanentVideoError,
 )
 
 logger = logging.getLogger(__name__)
@@ -103,7 +104,7 @@ class MockVideoClient(VideoGenerationClient):
 
     async def check_status(self, external_job_id: str) -> dict:
         if external_job_id not in self._jobs:
-            raise VideoGenerationError(
+            raise PermanentVideoError(
                 f"Unknown external job id: {external_job_id}"
             )
 

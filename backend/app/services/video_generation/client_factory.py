@@ -37,11 +37,22 @@ def get_video_client() -> VideoGenerationClient:
         _client_instance = MockVideoClient()
         logger.info("Video client initialized: MockVideoClient (singleton)")
         return _client_instance
-
-    raise NotImplementedError(
-        "Real video client not yet configured. Set USE_MOCK_VIDEO_API=true "
-        "or implement a real client in client_factory once a video model is chosen."
-    )
+    elif settings.video_provider == "wavespeed":
+        from app.services.video_generation.wavespeed_client import WaveSpeedClient
+        _client_instance = WaveSpeedClient(
+            api_key=settings.wavespeed_api_key.get_secret_value(),
+            base_url=settings.wavespeed_base_url,
+            model_path=settings.wavespeed_model_path,
+            resolution=settings.wavespeed_resolution,
+            generate_audio=settings.wavespeed_generate_audio,
+            enable_prompt_expansion=settings.wavespeed_enable_prompt_expansion,
+            negative_prompt_mode=settings.wavespeed_negative_prompt_mode,
+            request_timeout=settings.wavespeed_request_timeout_seconds,
+        )
+        logger.info("Video client initialized: WaveSpeedClient (singleton)")
+        return _client_instance
+    else:
+        raise ValueError(f"Unknown VIDEO_PROVIDER: {settings.video_provider!r}")
 
 
 def reset_video_client() -> None:
@@ -53,3 +64,12 @@ def reset_video_client() -> None:
     """
     global _client_instance
     _client_instance = None
+
+
+async def close_video_client() -> None:
+    """Close the HTTP client and clear the cache."""
+    global _client_instance
+    if _client_instance is not None:
+        if hasattr(_client_instance, "aclose"):
+            await _client_instance.aclose()
+        _client_instance = None

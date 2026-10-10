@@ -29,6 +29,9 @@ async def lifespan(app: FastAPI):
     except asyncio.CancelledError:
         pass
 
+    from app.services.video_generation.client_factory import close_video_client
+    await close_video_client()
+
     from app.llm.claude_client import LLMService
     await LLMService.close()
 

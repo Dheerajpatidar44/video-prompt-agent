@@ -17,6 +17,7 @@ from app.schemas.agent import AgentStatus
 from app.schemas.video_job import VideoJob, VideoJobStatus
 from app.db import video_jobs_repository as repo
 from app.services.video_generation.client_factory import get_video_client
+from app.services.video_generation.cost import billed_seconds, estimate_project_cost_usd
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,28 @@ async def generate_videos(state: AgentState) -> AgentState:
     if not project_id or not prompt_set or not spec:
         logger.error("generate_videos: missing project_id, prompt_set, or spec.")
         return {**state, "status": AgentStatus.ERROR, "error": "Missing inputs for video generation."}
+
+    if not settings.use_mock_video_api:
+        durations = [prompt.duration_seconds for prompt in prompt_set.prompts]
+        shots = len(durations)
+        total_seconds = sum(billed_seconds(d) for d in durations)
+        cost = estimate_project_cost_usd(durations, settings.wavespeed_resolution)
+        
+        limit_hit = None
+        if shots > settings.video_max_shots_per_project:
+            limit_hit = f"shots ({shots} > {settings.video_max_shots_per_project}, raise VIDEO_MAX_SHOTS_PER_PROJECT)"
+        elif total_seconds > settings.video_max_total_seconds_per_project:
+            limit_hit = f"seconds ({total_seconds} > {settings.video_max_total_seconds_per_project}, raise VIDEO_MAX_TOTAL_SECONDS_PER_PROJECT)"
+        elif cost > settings.video_max_estimated_cost_usd:
+            limit_hit = f"cost (${cost:.2f} > ${settings.video_max_estimated_cost_usd:.2f}, raise VIDEO_MAX_ESTIMATED_COST_USD)"
+            
+        if limit_hit:
+            logger.warning(f"Cost guard blocked video generation: exceeded {limit_hit}.")
+            return {
+                **state,
+                "video_generation_status": "BLOCKED_COST_GUARD",
+            }
+        logger.info(f"Video generation project estimated cost: ${cost:.2f} for {shots} shots ({total_seconds} billed seconds).")
 
     logger.info(f"Generating videos for project {project_id} ({len(prompt_set.prompts)} prompts).")
 

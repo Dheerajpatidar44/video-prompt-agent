@@ -12,10 +12,13 @@ from app.core.config import settings
 from app.db import video_jobs_repository as repo
 from app.schemas.video_job import VideoJobStatus
 from app.services.video_generation.client_factory import get_video_client
+from app.services.video_generation.base_client import PermanentVideoError, TransientVideoError
 from app.services.video_generation.storage import store_video, VideoStorageError
 from app.services.video_generation.stitcher import stitch_project_videos
 
 logger = logging.getLogger(__name__)
+
+_job_error_counts: dict[str, int] = {}
 
 
 async def _process_completed_job(job, result: dict) -> None:
@@ -45,6 +48,7 @@ async def _process_completed_job(job, result: dict) -> None:
             VideoJobStatus.FAILED,
             error_message=f"Storage failure: {exc}"
         )
+    _job_error_counts.pop(job.job_id, None)
 
 
 async def _handle_failed_job(job, result: dict, client) -> None:
@@ -70,6 +74,11 @@ async def _handle_failed_job(job, result: dict, client) -> None:
             
             if not prompt or not spec:
                 raise Exception("Prompt or Spec missing from state")
+                
+            if not getattr(settings, "use_mock_video_api", False):
+                from app.services.video_generation.cost import estimate_clip_cost_usd
+                cost = estimate_clip_cost_usd(prompt.duration_seconds, getattr(settings, "wavespeed_resolution", "480p"))
+                logger.info(f"Retrying job {job.job_id} at estimated cost: ${cost:.2f}")
                 
             # 2. Resubmit
             ext_job_id = await client.submit_job(
@@ -108,6 +117,7 @@ async def _handle_failed_job(job, result: dict, client) -> None:
             error_message=error_msg,
             completed_at=datetime.now(UTC)
         )
+    _job_error_counts.pop(job.job_id, None)
 
 
 async def _check_and_trigger_stitching(project_id: str) -> None:
@@ -165,30 +175,30 @@ async def run_poller_loop() -> None:
             for job in jobs:
                 active_projects.add(job.project_id)
 
-                # If it's in RETRYING, we need to resubmit it.
-                # But wait, generate_videos.py handles submissions. If it failed,
-                # we should probably resubmit here, or the poller should just 
-                # leave it for another worker. Let's do a simple resubmit here.
+                # QUEUED and RETRYING jobs are intentionally not resubmitted by the poller.
+                # Initial submissions are handled by the generate_videos node.
                 if job.status in (VideoJobStatus.QUEUED, VideoJobStatus.RETRYING):
-                    # For simplicity in this architecture, we expect the initial generate_videos 
-                    # node to transition QUEUED -> SUBMITTED.
-                    # If we catch a QUEUED/RETRYING here, we could re-read the prompt text and submit.
-                    # But the poller doesn't have the prompt text easily accessible without querying
-                    # another table or the graph state.
-                    # As a compromise: if a job needs retry, we just mark it FAILED for now if we
-                    # can't resubmit, or we keep prompt_text on the VideoJob row.
-                    # Let's assume generate_videos handles initial submission, and retries are
-                    # explicitly out of scope for the *poller* to re-submit unless we add prompt_text
-                    # to the VideoJob table. 
-                    # Actually, the brief says: "increment retry_count... resubmit via submit_job again"
-                    # Wait, to resubmit, we need `prompt_text`, `duration`, etc. 
-                    # Let's just log a warning that retries require state access and mark FAILED.
-                    # Wait! The brief says: "if under a max retry threshold... set status back to QUEUED/RETRYING and resubmit via submit_job again".
-                    # I will need to fetch the graph state to get the prompt details.
-                    pass
+                    continue
 
                 if job.status not in (VideoJobStatus.SUBMITTED, VideoJobStatus.PROCESSING):
                     continue
+                    
+                if job.submitted_at:
+                    now = datetime.now(UTC)
+                    sub_at = job.submitted_at
+                    if sub_at.tzinfo is None:
+                        sub_at = sub_at.replace(tzinfo=UTC)
+                    
+                    if (now - sub_at).total_seconds() > getattr(settings, "video_job_max_wait_seconds", 900):
+                        logger.error(f"Job {job.job_id} timed out waiting for provider.")
+                        repo.update_job_status(
+                            job.job_id,
+                            VideoJobStatus.FAILED,
+                            error_message="timed out waiting for provider",
+                            completed_at=now
+                        )
+                        _job_error_counts.pop(job.job_id, None)
+                        continue
 
                 if not job.external_job_id:
                     logger.warning(f"Job {job.job_id} is {job.status.value} but missing external_job_id.")
@@ -196,9 +206,27 @@ async def run_poller_loop() -> None:
 
                 try:
                     result = await client.check_status(job.external_job_id)
-                except Exception as exc:
-                    logger.error(f"Error checking status for {job.external_job_id}: {exc}")
+                    _job_error_counts.pop(job.job_id, None)
+                except PermanentVideoError as exc:
+                    logger.error(f"Permanent error checking status for {job.external_job_id}: {exc}")
                     await _handle_failed_job(job, {"error": str(exc)}, client)
+                    continue
+                except Exception as exc:
+                    _job_error_counts[job.job_id] = _job_error_counts.get(job.job_id, 0) + 1
+                    err_count = _job_error_counts[job.job_id]
+                    max_errs = getattr(settings, "video_status_max_consecutive_errors", 20)
+                    
+                    if err_count >= max_errs:
+                        logger.error(f"Job {job.job_id} status check unreachable {err_count} times. Marking FAILED.")
+                        repo.update_job_status(
+                            job.job_id,
+                            VideoJobStatus.FAILED,
+                            error_message=f"status check unreachable {err_count} times",
+                            completed_at=datetime.now(UTC)
+                        )
+                        _job_error_counts.pop(job.job_id, None)
+                    else:
+                        logger.warning(f"Transient error checking status for {job.external_job_id} ({err_count}/{max_errs}): {exc}")
                     continue
 
                 new_status_str = result.get("status")

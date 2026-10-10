@@ -99,4 +99,17 @@ export class ApiClient {
     const response = await fetch(`${API_BASE_URL}/scripts/${threadId}/prompts`);
     return this.handleResponse(response);
   }
+
+  static async getVideoStatus(projectId: string): Promise<{
+    project_id: string;
+    total_shots: number;
+    completed_shots: number;
+    failed_shots: number;
+    status: string;
+    final_video_url: string | null;
+    jobs: any[];
+  }> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/video-status`);
+    return this.handleResponse(response);
+  }
 }

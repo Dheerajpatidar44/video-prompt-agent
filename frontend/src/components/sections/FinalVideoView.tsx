@@ -1,7 +1,17 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Maximize, Repeat, Download, Wrench, Sparkles, X } from "lucide-react";
 
-export function FinalVideoView() {
+import type { GeneratedPrompt } from "@/lib/types";
+
+export function FinalVideoView({ 
+  videoUrl, 
+  prompts = [], 
+  totalDuration = 12 
+}: { 
+  videoUrl: string; 
+  prompts?: GeneratedPrompt[]; 
+  totalDuration?: number; 
+}) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
@@ -15,9 +25,20 @@ export function FinalVideoView() {
   const [selectedPart, setSelectedPart] = useState("part3");
   const [isFixPanelOpen, setIsFixPanelOpen] = useState(false);
   const [videoAspect, setVideoAspect] = useState<number | null>(null);
-  
-  const videoSrc = "/ad.mp4";
 
+  const parts = [];
+  let currentStart = 0;
+  for (let i = 0; i < prompts.length; i++) {
+    const p = prompts[i];
+    parts.push({
+      id: `part${i + 1}`,
+      label: `Part ${i + 1} (${currentStart.toFixed(1)}s - ${(currentStart + p.duration_seconds).toFixed(1)}s)`,
+      start: currentStart,
+      end: currentStart + p.duration_seconds
+    });
+    currentStart += p.duration_seconds;
+  }
+  
   const togglePlay = () => {
     if (videoRef.current) {
       if (videoRef.current.paused) {
@@ -89,7 +110,7 @@ export function FinalVideoView() {
 
   const downloadVideo = async () => {
     try {
-      const response = await fetch(videoSrc);
+      const response = await fetch(videoUrl);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -100,7 +121,7 @@ export function FinalVideoView() {
       document.body.removeChild(a);
       window.URL.revokeObjectURL(url);
     } catch (err) {
-      window.open(videoSrc, "_blank");
+      window.open(videoUrl, "_blank");
     }
   };
 
@@ -115,7 +136,7 @@ export function FinalVideoView() {
   const updateTimeLoop = () => {
     if (videoRef.current) {
       const current = videoRef.current.currentTime;
-      const dur = videoRef.current.duration || 12;
+      const dur = videoRef.current.duration || totalDuration;
       setProgress((current / dur) * 100);
       setCurrentTime(formatTime(current));
     }
@@ -136,7 +157,7 @@ export function FinalVideoView() {
   const handleTimeUpdate = () => {
     if (!isPlaying && !isDragging && videoRef.current) {
       const current = videoRef.current.currentTime;
-      const dur = videoRef.current.duration || 12;
+      const dur = videoRef.current.duration || totalDuration;
       setProgress((current / dur) * 100);
       setCurrentTime(formatTime(current));
     }
@@ -163,7 +184,7 @@ export function FinalVideoView() {
       if (clickX > maxWidth) clickX = maxWidth;
       
       const percentage = clickX / maxWidth;
-      const newTime = percentage * (videoRef.current.duration || 12);
+      const newTime = percentage * (videoRef.current.duration || totalDuration);
       
       videoRef.current.currentTime = newTime;
       setProgress(percentage * 100);
@@ -214,7 +235,7 @@ export function FinalVideoView() {
               maxHeight: '100%',
               maxWidth: '100%'
             }}
-            src={videoSrc}
+            src={videoUrl}
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
             onEnded={() => { if(!isLooping) setIsPlaying(false) }}
@@ -284,9 +305,9 @@ export function FinalVideoView() {
 
             {/* Video Frames Track */}
             <div className="absolute top-10 left-2 right-2 h-[60px] bg-white/5 rounded-md border border-white p-[1px] flex overflow-hidden shadow-[0_0_15px_rgba(255,255,255,0.1)]">
-               {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9].map((timeCode, i) => (
+               {Array.from({ length: 10 }).map((_, i) => (
                  <div key={i} className="flex-1 h-full bg-[#111] border-r border-black/50 last:border-r-0 relative pointer-events-none">
-                    <video src={`${videoSrc}#t=${timeCode}`} className="w-full h-full object-cover opacity-90" preload="metadata" />
+                    <video src={`${videoUrl}#t=${((i + 0.5) * (totalDuration || 12)) / 10}`} className="w-full h-full object-cover opacity-90" preload="metadata" />
                  </div>
                ))}
             </div>
@@ -350,10 +371,16 @@ export function FinalVideoView() {
                 onChange={(e) => setSelectedPart(e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-sm text-gray-200 appearance-none focus:outline-none focus:border-blue-500 cursor-pointer"
               >
-                <option value="part1">Part 1 (0.0s - 3.0s)</option>
-                <option value="part2">Part 2 (3.0s - 7.0s)</option>
-                <option value="part3">Part 3 (7.0s - 10.0s)</option>
-                <option value="part4">Part 4 (10.0s - 12.0s)</option>
+                {parts.length > 0 ? parts.map(p => (
+                  <option key={p.id} value={p.id}>{p.label}</option>
+                )) : (
+                  <>
+                    <option value="part1">Part 1 (0.0s - 3.0s)</option>
+                    <option value="part2">Part 2 (3.0s - 7.0s)</option>
+                    <option value="part3">Part 3 (7.0s - 10.0s)</option>
+                    <option value="part4">Part 4 (10.0s - 12.0s)</option>
+                  </>
+                )}
                 <option value="custom">Custom Time Range...</option>
               </select>
               <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-xs">
@@ -385,7 +412,8 @@ export function FinalVideoView() {
             <label className="text-xs font-medium text-gray-300 mb-2 block">Describe the issue & how to fix it <span className="text-red-400">*</span></label>
             <textarea 
               className="w-full flex-1 bg-gray-950 border border-gray-800 rounded-lg p-3 text-sm text-gray-200 resize-none focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50"
-              defaultValue="In this part (7-10 seconds), the model's hand direction is wrong. Please correct it so she is holding the map properly and looking towards the Eiffel Tower."
+              placeholder="E.g., In this part, the model's hand direction is wrong. Please correct it so she is holding the map properly."
+              defaultValue=""
             />
             <div className="text-right text-[10px] text-gray-500 mt-1">145/500</div>
           </div>
