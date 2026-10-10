@@ -22,6 +22,12 @@ class Settings(BaseSettings):
     cloudinary_api_key: str = Field("default", validation_alias="CLOUDINARY_API_KEY")
     cloudinary_api_secret: str = Field("default", validation_alias="CLOUDINARY_API_SECRET")
 
+    # Video Generation Config
+    use_mock_video_api: bool = Field(True, validation_alias="USE_MOCK_VIDEO_API")
+    video_generation_concurrency_limit: int = Field(3, validation_alias="VIDEO_GENERATION_CONCURRENCY_LIMIT")
+    video_poll_interval_seconds: int = Field(10, validation_alias="VIDEO_POLL_INTERVAL_SECONDS")
+    video_max_retries: int = Field(2, validation_alias="VIDEO_MAX_RETRIES")
+
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

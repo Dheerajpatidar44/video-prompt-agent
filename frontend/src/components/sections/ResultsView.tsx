@@ -2,13 +2,15 @@
 
 import React from "react";
 import { motion } from "framer-motion";
-import { CheckCircle2, Film, Wand2, Clock, Copy, Check } from "lucide-react";
+import { CheckCircle2, Film, Wand2, Clock, Copy, Check, ShieldCheck } from "lucide-react";
 import type { MasterScenePlan, PromptSet } from "@/lib/types";
 
 interface ResultsViewProps {
   scenePlan: MasterScenePlan | null;
   prompts: PromptSet | null;
+  reviewReport?: any | null;
   onReset: () => void;
+  onGenerateVideo: () => void;
 }
 
 function CopyButton({ text }: { text: string }) {
@@ -22,20 +24,9 @@ function CopyButton({ text }: { text: string }) {
     <button
       onClick={handleCopy}
       title="Copy prompt"
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 6,
-        padding: "6px 14px",
-        borderRadius: 8,
-        border: "1px solid var(--color-border-default)",
-        background: "var(--color-bg-elevated)",
-        color: copied ? "#22c55e" : "var(--color-text-secondary)",
-        fontSize: 12,
-        cursor: "pointer",
-        transition: "all 0.15s",
-        flexShrink: 0,
-      }}
+      className={`flex items-center gap-1.5 px-[14px] py-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] text-[12px] cursor-pointer transition-all duration-150 shrink-0 ${
+        copied ? "text-[#22c55e]" : "text-[var(--color-text-secondary)]"
+      }`}
     >
       {copied ? <Check size={13} /> : <Copy size={13} />}
       {copied ? "Copied!" : "Copy"}
@@ -43,60 +34,50 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
-export function ResultsView({ scenePlan, prompts, onReset }: ResultsViewProps) {
+export function ResultsView({ scenePlan, prompts, reviewReport, onReset, onGenerateVideo }: ResultsViewProps) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 40 }}>
+    <div className="flex flex-col gap-10">
       {/* Success Banner */}
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          padding: "40px 24px",
-          background: "rgba(34,197,94,0.06)",
-          border: "1px solid rgba(34,197,94,0.15)",
-          borderRadius: 16,
-          textAlign: "center",
-          gap: 12,
-        }}
+        className="flex flex-col items-center py-10 px-6 bg-[#22c55e]/[0.06] border border-[#22c55e]/15 rounded-2xl text-center gap-3"
       >
-        <div style={{ padding: 16, background: "rgba(34,197,94,0.12)", borderRadius: "50%" }}>
+        <div className="p-4 bg-[#22c55e]/[0.12] rounded-full">
           <CheckCircle2 size={40} color="#22c55e" />
         </div>
-        <h2 style={{ fontSize: 26, fontWeight: 700, color: "var(--color-text-primary)" }}>Your Video Plan is Ready!</h2>
-        <p style={{ fontSize: 14, color: "var(--color-text-secondary)", maxWidth: 500 }}>
+        <h2 className="text-[26px] font-bold text-[var(--color-text-primary)]">Your Video Plan is Ready!</h2>
+        <p className="text-[14px] text-[var(--color-text-secondary)] max-w-[500px]">
           Successfully generated{" "}
-          <strong style={{ color: "var(--color-text-primary)" }}>{scenePlan?.scenes.length ?? 0} scenes</strong> and{" "}
-          <strong style={{ color: "var(--color-text-primary)" }}>{prompts?.prompts.length ?? 0} optimized prompts</strong>.
+          <strong className="text-[var(--color-text-primary)]">{scenePlan?.scenes.length ?? 0} scenes</strong> and{" "}
+          <strong className="text-[var(--color-text-primary)]">{prompts?.prompts.length ?? 0} optimized prompts</strong>.
         </p>
+        
       </motion.div>
 
       {/* Scene Plan */}
       {scenePlan && scenePlan.scenes.length > 0 && (
-        <section style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12, borderBottom: "1px solid var(--color-border-subtle)" }}>
+        <section className="flex flex-col gap-4">
+          <div className="flex items-center gap-2.5 pb-3 border-b border-[var(--color-border-subtle)]">
             <Film size={20} color="#3b82f6" />
-            <h3 style={{ fontSize: 18, fontWeight: 700 }}>Master Scene Plan</h3>
+            <h3 className="text-[18px] font-bold">Master Scene Plan</h3>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))", gap: 16 }}>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] gap-4">
             {scenePlan.scenes.map((scene) => (
               <motion.div
                 key={scene.scene_id}
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="card"
-                style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 12 }}
+                className="card px-5 py-[18px] flex flex-col gap-3"
               >
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700 }}>Scene {scene.scene_number}</span>
-                  <span style={{ fontSize: 11, color: "var(--color-text-muted)", display: "flex", alignItems: "center", gap: 4 }}>
+                <div className="flex items-center justify-between">
+                  <span className="text-[13px] font-bold">Scene {scene.scene_number}</span>
+                  <span className="text-[11px] text-[var(--color-text-muted)] flex items-center gap-1">
                     <Clock size={11} /> {scene.duration_seconds}s
                   </span>
                 </div>
-                <p style={{ fontSize: 13, color: "var(--color-text-secondary)", lineHeight: 1.6 }}>{scene.purpose}</p>
-                <div style={{ paddingTop: 10, borderTop: "1px solid var(--color-border-subtle)", display: "flex", justifyContent: "space-between", fontSize: 12, color: "var(--color-text-muted)" }}>
+                <p className="text-[13px] text-[var(--color-text-secondary)] leading-[1.6]">{scene.purpose}</p>
+                <div className="pt-2.5 border-t border-[var(--color-border-subtle)] flex justify-between text-[12px] text-[var(--color-text-muted)]">
                   <span>{scene.shots?.length ?? 0} shots</span>
                   <span>{scene.location}</span>
                 </div>
@@ -108,12 +89,22 @@ export function ResultsView({ scenePlan, prompts, onReset }: ResultsViewProps) {
 
       {/* Prompts */}
       {prompts && prompts.prompts.length > 0 && (
-        <section style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, paddingBottom: 12, borderBottom: "1px solid var(--color-border-subtle)" }}>
-            <Wand2 size={20} color="#8b5cf6" />
-            <h3 style={{ fontSize: 18, fontWeight: 700 }}>Generated Prompts</h3>
+        <section className="flex flex-col gap-4">
+          <div className="flex items-center justify-between pb-3 border-b border-[var(--color-border-subtle)]">
+            <div className="flex items-center gap-2.5">
+              <Wand2 size={20} color="#8b5cf6" />
+              <h3 className="text-[18px] font-bold">Generated Prompts</h3>
+            </div>
+            {reviewReport && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#22c55e]/10 border border-[#22c55e]/20">
+                <ShieldCheck size={14} color="#22c55e" />
+                <span className="text-[12px] font-semibold text-[#22c55e]">
+                  QA {reviewReport.status.replace(/_/g, " ")}
+                </span>
+              </div>
+            )}
           </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div className="flex flex-col gap-3.5">
             {prompts.prompts.map((prompt, idx) => {
               let fullPromptText = prompt.prompt_text;
               if (prompt.negative_constraints) {
@@ -129,38 +120,37 @@ export function ResultsView({ scenePlan, prompts, onReset }: ResultsViewProps) {
                   initial={{ opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: idx * 0.05 }}
-                  className="card"
-                  style={{ padding: "18px 20px", display: "flex", flexDirection: "column", gap: 14, position: "relative", overflow: "hidden" }}
+                  className="card px-5 py-[18px] flex flex-col gap-3.5 relative overflow-hidden"
                 >
-                  <div style={{ position: "absolute", left: 0, top: 0, bottom: 0, width: 3, background: "linear-gradient(to bottom, #3b82f6, #8b5cf6)" }} />
+                  <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-gradient-to-b from-blue-500 to-violet-500" />
 
-                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, padding: "3px 10px", borderRadius: 99, background: "rgba(255,255,255,0.07)", color: "var(--color-text-secondary)" }}>
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div className="flex gap-2">
+                      <span className="text-[12px] font-semibold px-2.5 py-[3px] rounded-full bg-white/[0.07] text-[var(--color-text-secondary)]">
                         Prompt {idx + 1}
                       </span>
-                      <span style={{ fontSize: 12, color: "var(--color-text-muted)", padding: "3px 0" }}>
+                      <span className="text-[12px] text-[var(--color-text-muted)] py-[3px]">
                         {prompt.duration_seconds}s · {prompt.camera_parameters}
                       </span>
                     </div>
                     <CopyButton text={fullPromptText} />
                   </div>
 
-                  <div style={{ background: "var(--color-bg-elevated)", borderRadius: 8, padding: "14px 16px", border: "1px solid var(--color-border-subtle)" }}>
-                    <p style={{ fontSize: 13, fontFamily: "monospace", lineHeight: 1.75, color: "rgba(255,255,255,0.85)", whiteSpace: "pre-wrap" }}>
+                  <div className="bg-[var(--color-bg-elevated)] rounded-lg py-3.5 px-4 border border-[var(--color-border-subtle)]">
+                    <p className="text-[13px] font-mono leading-[1.75] text-white/85 whitespace-pre-wrap">
                       {fullPromptText}
                     </p>
                   </div>
 
                 {(prompt.style_modifiers || prompt.motion_parameters) && (
-                  <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  <div className="flex flex-wrap gap-2">
                     {prompt.style_modifiers && (
-                      <span style={{ fontSize: 12, padding: "4px 12px", borderRadius: 99, background: "rgba(139,92,246,0.1)", color: "#a78bfa", border: "1px solid rgba(139,92,246,0.2)" }}>
+                      <span className="text-[12px] px-3 py-1 rounded-full bg-[#8b5cf6]/10 text-[#a78bfa] border border-[#8b5cf6]/20">
                         Style: {prompt.style_modifiers}
                       </span>
                     )}
                     {prompt.motion_parameters && (
-                      <span style={{ fontSize: 12, padding: "4px 12px", borderRadius: 99, background: "rgba(59,130,246,0.1)", color: "#60a5fa", border: "1px solid rgba(59,130,246,0.2)" }}>
+                      <span className="text-[12px] px-3 py-1 rounded-full bg-[#3b82f6]/10 text-[#60a5fa] border border-[#3b82f6]/20">
                         Motion: {prompt.motion_parameters}
                       </span>
                     )}
@@ -172,14 +162,20 @@ export function ResultsView({ scenePlan, prompts, onReset }: ResultsViewProps) {
           </div>
         </section>
       )}
-
-      {/* Reset */}
-      <div style={{ display: "flex", justifyContent: "center", paddingTop: 16 }}>
+ 
+      {/* Actions */}
+      <div className="flex justify-center gap-4 pt-4">
         <button
           onClick={onReset}
-          style={{ padding: "12px 32px", borderRadius: 10, border: "1px solid var(--color-border-default)", background: "var(--color-bg-elevated)", color: "var(--color-text-primary)", fontSize: 14, fontWeight: 500, cursor: "pointer" }}
+          className="px-8 py-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] text-[14px] font-medium cursor-pointer"
         >
           Start New Project
+        </button>
+        <button
+          onClick={onGenerateVideo}
+          className="px-8 py-3 rounded-lg border-none bg-gradient-to-br from-blue-500 to-violet-500 text-white text-[14px] font-medium cursor-pointer shadow-[0_4px_12px_rgba(59,130,246,0.3)]"
+        >
+          Generate Final Video
         </button>
       </div>
     </div>

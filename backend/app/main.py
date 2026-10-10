@@ -10,12 +10,25 @@ from app.api.router import api_router
 setup_logging()
 
 
+import asyncio
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle events for FastAPI."""
     from app.db.database import init_db
     init_db()
+    
+    from app.services.video_generation.poller import run_poller_loop
+    poller_task = asyncio.create_task(run_poller_loop())
+    
     yield
+    
+    poller_task.cancel()
+    try:
+        await poller_task
+    except asyncio.CancelledError:
+        pass
+
     from app.llm.claude_client import LLMService
     await LLMService.close()
 

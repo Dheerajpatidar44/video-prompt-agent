@@ -2,6 +2,25 @@
 
 import React, { useRef } from "react";
 import { ImageIcon, X } from "lucide-react";
+import Swal from "sweetalert2";
+
+const showToast = (msg: string) => {
+  Swal.fire({
+    toast: true,
+    position: "bottom-end",
+    icon: "warning",
+    title: msg,
+    showConfirmButton: false,
+    timer: 3000,
+    timerProgressBar: true,
+    background: "var(--color-bg-elevated)",
+    color: "var(--color-text-primary)",
+    iconColor: "#f59e0b",
+    customClass: {
+      popup: "border border-[var(--color-border-subtle)] rounded-xl shadow-lg",
+    },
+  });
+};
 
 interface UploadCardProps {
   label: string;
@@ -11,6 +30,7 @@ interface UploadCardProps {
   onFilesChange: (files: File[]) => void;
   accept?: string;
   multiple?: boolean;
+  maxFiles?: number;
 }
 
 export function UploadCard({
@@ -21,18 +41,32 @@ export function UploadCard({
   onFilesChange,
   accept = "image/png,image/jpg,image/jpeg,image/webp",
   multiple = true,
+  maxFiles = 5,
 }: UploadCardProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const dropped = Array.from(e.dataTransfer.files);
-    onFilesChange([...files, ...dropped]);
+    const newFiles = [...files, ...dropped];
+    if (newFiles.length > maxFiles) {
+      showToast(`You can only upload a maximum of ${maxFiles} files here.`);
+      onFilesChange(newFiles.slice(0, maxFiles));
+    } else {
+      onFilesChange(newFiles);
+    }
   };
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      onFilesChange([...files, ...Array.from(e.target.files)]);
+      const selected = Array.from(e.target.files);
+      const newFiles = [...files, ...selected];
+      if (newFiles.length > maxFiles) {
+        showToast(`You can only upload a maximum of ${maxFiles} files here.`);
+        onFilesChange(newFiles.slice(0, maxFiles));
+      } else {
+        onFilesChange(newFiles);
+      }
     }
   };
 
@@ -42,24 +76,22 @@ export function UploadCard({
 
   return (
     <div
-      className="card"
-      style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14, height: "100%" }}
+      className="card px-[18px] py-4 flex flex-col gap-3.5 h-full"
     >
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "9px" }}>
-          <span style={{ color: "#3b82f6", display: "flex", alignItems: "center" }}>{icon}</span>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-[9px]">
+          <span className="text-blue-500 flex items-center">{icon}</span>
           <div>
-            <p style={{ fontSize: 13, fontWeight: 600, color: "var(--color-text-primary)", margin: 0 }}>{label}</p>
-            <p style={{ fontSize: 11, color: "var(--color-text-secondary)", marginTop: 1 }}>{description}</p>
+            <p className="text-[13px] font-semibold text-[var(--color-text-primary)] m-0">{label}</p>
+            <p className="text-[11px] text-[var(--color-text-secondary)] mt-0.5">{description}</p>
           </div>
         </div>
       </div>
 
       {/* Drop Zone */}
       <div
-        className="upload-zone"
-        style={{ flex: 1, minHeight: 110, padding: "16px", gap: 8 }}
+        className="upload-zone flex-1 min-h-[110px] p-4 gap-2"
         onClick={() => inputRef.current?.click()}
         onDrop={handleDrop}
         onDragOver={(e) => e.preventDefault()}
@@ -67,72 +99,40 @@ export function UploadCard({
         {files.length === 0 ? (
           <>
             <ImageIcon size={24} color="var(--color-text-muted)" />
-            <p style={{ fontSize: 13, color: "var(--color-text-secondary)", textAlign: "center" }}>
+            <p className="text-[13px] text-[var(--color-text-secondary)] text-center">
               Click to upload or drag and drop
             </p>
-            <p style={{ fontSize: 11, color: "var(--color-text-muted)" }}>PNG, JPG, WebP (Max 10MB each)</p>
+            <p className="text-[11px] text-[var(--color-text-muted)]">PNG, JPG, WebP (Max 10MB each)</p>
           </>
         ) : (
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, width: "100%" }}>
+          <div className="flex flex-wrap gap-2 w-full">
             {files.map((f, i) => (
               <div
                 key={i}
-                style={{
-                  position: "relative",
-                  width: 72,
-                  height: 72,
-                  borderRadius: 8,
-                  overflow: "hidden",
-                  border: "1px solid var(--color-border-default)",
-                }}
+                className="relative w-[72px] h-[72px] rounded-lg overflow-hidden border border-[var(--color-border-default)]"
               >
                 <img
                   src={URL.createObjectURL(f)}
                   alt={f.name}
-                  style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                  className="w-full h-full object-cover"
                 />
                 <button
                   onClick={(e) => { e.stopPropagation(); removeFile(i); }}
-                  style={{
-                    position: "absolute",
-                    top: 3,
-                    right: 3,
-                    background: "rgba(0,0,0,0.7)",
-                    border: "none",
-                    borderRadius: "50%",
-                    width: 18,
-                    height: 18,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    color: "white",
-                  }}
+                  className="absolute top-[3px] right-[3px] bg-black/70 border-none rounded-full w-[18px] h-[18px] flex items-center justify-center cursor-pointer text-white"
                 >
                   <X size={10} />
                 </button>
               </div>
             ))}
-            <div
-              style={{
-                width: 72,
-                height: 72,
-                borderRadius: 8,
-                background: "rgba(255,255,255,0.03)",
-                border: "1.5px dashed var(--color-border-default)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                color: "var(--color-text-muted)",
-                fontSize: 24,
-              }}
-            >
-              +
-            </div>
+            {files.length < maxFiles && (
+              <div className="w-[72px] h-[72px] rounded-lg bg-white/5 border-[1.5px] border-dashed border-[var(--color-border-default)] flex items-center justify-center text-[var(--color-text-muted)] text-2xl">
+                +
+              </div>
+            )}
           </div>
         )}
       </div>
-      <input ref={inputRef} type="file" accept={accept} multiple={multiple} onChange={handleChange} style={{ display: "none" }} />
+      <input ref={inputRef} type="file" accept={accept} multiple={multiple} onChange={handleChange} className="hidden" />
     </div>
   );
 }

@@ -27,48 +27,28 @@ export function ScriptInput({ scriptText, onScriptChange, uploadedFile, onFileUp
   };
 
   return (
-    <div className="card" style={{ padding: "16px 18px", display: "flex", flexDirection: "column", gap: 14 }}>
+    <div className="card px-[18px] py-4 flex flex-col gap-3.5">
       {/* Section Header */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-[9px]">
           <FileText size={17} color="#3b82f6" />
-          <h2 style={{ fontSize: 14, fontWeight: 600, color: "var(--color-text-primary)", margin: 0 }}>
+          <h2 className="text-[14px] font-semibold text-[var(--color-text-primary)] m-0">
             Video Script
           </h2>
         </div>
       </div>
 
       {/* Tabs */}
-      <div
-        style={{
-          display: "flex",
-          gap: 3,
-          background: "var(--color-bg-base)",
-          padding: 3,
-          borderRadius: 7,
-          width: "fit-content",
-          border: "1px solid var(--color-border-subtle)",
-        }}
-      >
+      <div className="flex gap-[3px] bg-[var(--color-bg-base)] p-[3px] rounded-[7px] w-fit border border-[var(--color-border-subtle)]">
         {(["paste", "upload"] as const).map((m) => (
           <button
             key={m}
             onClick={() => setMode(m)}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              padding: "6px 13px",
-              borderRadius: 5,
-              fontSize: 13,
-              fontWeight: 500,
-              border: "none",
-              cursor: "pointer",
-              transition: "all 0.15s ease",
-              background: mode === m ? "var(--color-bg-elevated)" : "transparent",
-              color: mode === m ? "var(--color-text-primary)" : "var(--color-text-muted)",
-              boxShadow: mode === m ? "0 1px 3px rgba(0,0,0,0.4)" : "none",
-            }}
+            className={`flex items-center gap-1.5 px-[13px] py-1.5 rounded-[5px] text-[13px] font-medium border-none cursor-pointer transition-all duration-150 ease-in-out ${
+              mode === m
+                ? "bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] shadow-sm"
+                : "bg-transparent text-[var(--color-text-muted)]"
+            }`}
           >
             {m === "paste" ? <FileText size={13} /> : <Upload size={13} />}
             {m === "paste" ? "Paste Script" : "Upload File (PDF / TXT)"}
@@ -78,64 +58,36 @@ export function ScriptInput({ scriptText, onScriptChange, uploadedFile, onFileUp
 
       {/* Textarea or Upload zone */}
       {mode === "paste" ? (
-        <div style={{ position: "relative" }}>
+        <div className="relative">
           <textarea
             value={scriptText}
             onChange={(e) => onScriptChange(e.target.value)}
             placeholder="Paste your video script here..."
-            style={{
-              width: "100%",
-              height: 190,
-              padding: "12px 14px",
-              background: "var(--color-bg-base)",
-              border: "1px solid var(--color-border-default)",
-              borderRadius: 8,
-              color: "var(--color-text-primary)",
-              fontSize: 14,
-              lineHeight: 1.75,
-              fontFamily: "inherit",
-              outline: "none",
-              resize: "vertical",
-              transition: "border-color 0.2s",
-              boxSizing: "border-box",
-              display: "block",
-            }}
-            onFocus={(e) => (e.target.style.borderColor = "rgba(59,130,246,0.5)")}
-            onBlur={(e) => (e.target.style.borderColor = "var(--color-border-default)")}
+            className="w-full h-[190px] px-3.5 py-3 bg-[var(--color-bg-base)] border border-[var(--color-border-default)] focus:border-blue-500/50 rounded-lg text-[var(--color-text-primary)] text-sm leading-[1.75] font-inherit outline-none resize-y transition-colors box-border block"
           />
-          <span
-            style={{
-              position: "absolute",
-              bottom: 10,
-              right: 12,
-              fontSize: 11,
-              color: "var(--color-text-muted)",
-              pointerEvents: "none",
-            }}
-          >
+          <span className="absolute bottom-2.5 right-3 text-[11px] text-[var(--color-text-muted)] pointer-events-none">
             {scriptText.length} characters
           </span>
         </div>
       ) : (
         <div
-          className="upload-zone"
-          style={{ height: 190, gap: 10, flexDirection: "column", display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer" }}
+          className="upload-zone h-[190px] gap-2.5 flex flex-col items-center justify-center cursor-pointer"
           onClick={() => fileInputRef.current?.click()}
           onDrop={handleFileDrop}
           onDragOver={(e) => e.preventDefault()}
         >
           <Upload size={22} color="var(--color-text-muted)" />
           {uploadedFile ? (
-            <p style={{ fontSize: 13, color: "#3b82f6", fontWeight: 500 }}>{uploadedFile.name}</p>
+            <p className="text-[13px] text-blue-500 font-medium">{uploadedFile.name}</p>
           ) : (
             <>
-              <p style={{ fontSize: 13, color: "var(--color-text-secondary)", fontWeight: 500 }}>Click to upload or drag and drop</p>
-              <p style={{ fontSize: 12, color: "var(--color-text-muted)" }}>PDF, TXT (Max 10MB)</p>
+              <p className="text-[13px] text-[var(--color-text-secondary)] font-medium">Click to upload or drag and drop</p>
+              <p className="text-[12px] text-[var(--color-text-muted)]">PDF, TXT (Max 10MB)</p>
             </>
           )}
         </div>
       )}
-      <input ref={fileInputRef} type="file" accept=".pdf,.txt" onChange={handleFileChange} style={{ display: "none" }} />
+      <input ref={fileInputRef} type="file" accept=".pdf,.txt" onChange={handleFileChange} className="hidden" />
     </div>
   );
 }

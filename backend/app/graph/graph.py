@@ -9,6 +9,8 @@ from app.graph.nodes.update_state import update_state
 from app.graph.nodes.re_analyze import re_analyze
 from app.graph.nodes.build_video_spec import build_video_spec
 from app.graph.nodes.generate_scenes_and_prompts import generate_scenes_and_prompts
+from app.graph.nodes.review_prompts import review_prompts
+from app.graph.nodes.generate_videos import generate_videos
 from app.graph.routing import route_after_analysis
 
 
@@ -75,6 +77,13 @@ ALLOWED_CHECKPOINT_TYPES = [
     ("app.schemas.specification", "UnresolvedItem"),
     ("app.schemas.specification", "ConstraintSpec"),
     ("app.schemas.specification", "VideoSpecification"),
+
+    # app/schemas/review_report.py
+    ("app.schemas.review_report", "IssueSeverity"),
+    ("app.schemas.review_report", "IssueCategory"),
+    ("app.schemas.review_report", "ReviewStatus"),
+    ("app.schemas.review_report", "ReviewIssue"),
+    ("app.schemas.review_report", "ReviewReport"),
 ]
 
 
@@ -90,6 +99,8 @@ def build_graph(memory=None):
     workflow.add_node("re_analyze", re_analyze)                   # 1 LLM call (re-evaluate gaps after answers)
     workflow.add_node("build_video_spec", build_video_spec)       # 1 LLM call
     workflow.add_node("generate", generate_scenes_and_prompts)    # 1 LLM call (scenes + prompts combined)
+    workflow.add_node("review_prompts", review_prompts)            # Deterministic QA + targeted patch
+    workflow.add_node("generate_videos", generate_videos)          # Trigger async video generation
 
     # Edges
     workflow.set_entry_point("initialize_state")
@@ -118,9 +129,11 @@ def build_graph(memory=None):
         }
     )
 
-    # Generation: spec → combined scene+prompt generation → END
+    # Generation: spec → combined scene+prompt generation → review → generate_videos → END
     workflow.add_edge("build_video_spec", "generate")
-    workflow.add_edge("generate", END)
+    workflow.add_edge("generate", "review_prompts")
+    workflow.add_edge("review_prompts", "generate_videos")
+    workflow.add_edge("generate_videos", END)
 
     if memory:
         return workflow.compile(checkpointer=memory, interrupt_before=["update_state"])

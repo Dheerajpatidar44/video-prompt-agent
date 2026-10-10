@@ -62,8 +62,8 @@ export function Sidebar() {
       </div>
 
       {/* New Project Button */}
-      <Link 
-        href="/" 
+      <Link
+        href="/"
         className="btn-primary"
         style={{ padding: "10px 14px", fontSize: 14, marginBottom: 8, borderRadius: 8, width: "100%", textDecoration: "none" }}
       >
@@ -73,8 +73,8 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav style={{ display: "flex", flexDirection: "column", gap: 2, flex: 1 }}>
-        <Link 
-          href="/projects" 
+        <Link
+          href="/projects"
           className="sidebar-nav-item"
           style={{ width: "100%", textDecoration: "none" }}
         >

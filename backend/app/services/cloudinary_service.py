@@ -32,3 +32,26 @@ def upload_image(file_bytes: bytes, filename: str, folder: str = "video-agent") 
         print(f"Cloudinary upload error: {e}")
         # Fallback for dev
         return f"https://mock-image-url.com/{folder}/{filename}-fallback"
+
+def upload_video(file_bytes: bytes, filename: str, folder: str = "video-agent") -> str:
+    """Upload video to Cloudinary, return secure URL. Mock for development if defaults are set."""
+    if settings.cloudinary_cloud_name == "default":
+        # Return a mock URL for local dev if Cloudinary isn't configured
+        return f"http://127.0.0.1:3000/ad.mp4"
+        
+    configure_cloudinary()
+    import io
+    try:
+        # Use chunked upload for videos if large, but basic upload is fine for this phase
+        result = cloudinary.uploader.upload(
+            io.BytesIO(file_bytes),
+            folder=folder,
+            public_id=filename.split('.')[0] if '.' in filename else filename,
+            resource_type="video",
+            overwrite=True,
+        )
+        return result["secure_url"]
+    except Exception as e:
+        print(f"Cloudinary video upload error: {e}")
+        # Fallback for dev
+        return f"http://127.0.0.1:3000/ad.mp4"

@@ -3,6 +3,7 @@ from app.schemas.agent import Gap, Question, Answer, AgentStatus
 from app.schemas.specification import VideoSpecification
 from app.schemas.scene_plan import MasterScenePlan
 from app.schemas.generated_prompt import PromptSet
+from app.schemas.review_report import ReviewReport
 
 class AgentState(TypedDict):
     # Core project input
@@ -40,8 +41,12 @@ class AgentState(TypedDict):
     # Outputs
     scene_plan: Optional[MasterScenePlan]
     prompt_set: Optional[PromptSet]
+    review_report: Optional[ReviewReport]
     generated_prompts: List[str]
     validation_results: Dict[str, Any]
+    
+    video_generation_status: Optional[str]  # e.g. "IN_PROGRESS", "COMPLETED", "PARTIAL_FAILURE"
+    final_video_url: Optional[str]
     
     # Status
     status: AgentStatus
