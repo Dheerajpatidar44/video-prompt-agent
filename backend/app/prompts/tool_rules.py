@@ -12,19 +12,30 @@ tool's current official prompting guide periodically.
 
 TOOL_RULES = {
     "Veo": """
-- Write in full, natural, cinematic sentences rather than keyword lists.
-- Organize the prompt so these elements are identifiable, in roughly this order:
-  subject, action, setting/context, camera behavior, visual style and mood, and
-  audio (only if the specification includes dialogue, ambience, or sound).
-- Camera and editing language is welcome and effective here (e.g. dolly, pan,
-  tracking, crane, match cut) — use it when it serves the shot, not as decoration.
-- Be concrete and observable rather than abstract: describe what the viewer would
-  literally see, instead of vague qualities like "beautiful" or "epic."
-- If the specification includes spoken dialogue, attribute it clearly to the
-  speaker and describe how it's delivered (tone, pace), rather than just quoting
-  the line in isolation.
-- Each prompt should stay focused on a single continuous moment or beat rather
-  than cramming in multiple unrelated actions.
+- VEO DURATION RULES (CRITICAL):
+  * Google Veo 3.1 Lite generates clips strictly in fixed durations: 4, 6, or 8 seconds (at 720p; 8 seconds only at 1080p).
+  * Arbitrary durations (1s, 2s, 3s, 5s, 7s) are NOT natively supported by Veo.
+  * You MUST plan every shot's duration using Veo's native building blocks: 4s, 6s, or 8s.
+  * Plan shot combinations so they sum to the scene and total video duration:
+    - 4s video: 1 shot of 4s
+    - 6s video: 1 shot of 6s
+    - 8s video: 1 shot of 8s (or 2 shots of 4s)
+    - 10s video: 2 shots (e.g., Shot 1 = 6s, Shot 2 = 4s)
+    - 12s video: 3 shots of 4s (or 2 shots of 6s)
+    - 14s video: 3 shots (e.g., Shot 1 = 6s, Shot 2 = 4s, Shot 3 = 4s)
+    - 16s video: 2 shots of 8s (or 4 shots of 4s)
+    - For any odd or non-standard total target, choose 4s/6s/8s blocks that match as closely as possible so downstream trimming can achieve the exact duration.
+- VEO PROMPT FORMULA:
+  Structure each prompt following Veo's optimal prompt formula:
+  [Camera Movement & Framing] + [Subject Appearance & Continuous Action] + [Setting & Environment] + [Lighting & Atmosphere] + [Cinematic Style & Mood]
+- SINGLE CONTINUOUS MOTION BEAT:
+  Each 4s/6s/8s shot must describe ONE coherent, fluid action beat. Avoid cramming multiple disjointed actions into a single shot.
+- CINEMATIC CAMERA VOCABULARY:
+  Use concrete camera movement terms Veo excels at: slow push-in, dolly tracking, sweeping pan, crane up/down, static locked-off shot, low-angle dynamic tracking. Avoid abstract buzzwords like "cinematic quality" or "hyper-realistic".
+- LIGHTING & ATMOSPHERE:
+  Explicitly specify observable lighting and texture: golden hour rim lighting, soft diffused morning daylight, high-contrast chiaroscuro, volumetric haze, photorealistic 35mm film grain.
+- Write in full, natural, flowing cinematic sentences rather than comma-separated tag lists.
+- If the specification includes spoken dialogue, attribute it clearly to the speaker and describe how it is delivered (tone, pacing, expression).
 """,
 
     "Runway": """

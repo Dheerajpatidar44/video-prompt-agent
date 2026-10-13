@@ -30,6 +30,7 @@ class VideoJob(BaseModel):
     retry_count: int = 0
     submitted_at: Optional[datetime] = None
     completed_at: Optional[datetime] = None
+    duration_seconds: Optional[float] = None
 
 
 class ProjectVideoStatus(BaseModel):

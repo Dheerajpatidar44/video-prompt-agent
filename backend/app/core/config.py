@@ -29,16 +29,17 @@ class Settings(BaseSettings):
     video_poll_interval_seconds: int = Field(10, validation_alias="VIDEO_POLL_INTERVAL_SECONDS")
     video_max_retries: int = Field(2, validation_alias="VIDEO_MAX_RETRIES")
 
-    # WaveSpeed Config
-    video_provider: str = Field("wavespeed", validation_alias="VIDEO_PROVIDER")
-    wavespeed_api_key: SecretStr = Field(SecretStr(""), validation_alias="WAVESPEED_API_KEY")
-    wavespeed_base_url: str = Field("https://api.wavespeed.ai/api/v3", validation_alias="WAVESPEED_BASE_URL")
-    wavespeed_model_path: str = Field("alibaba/wan-3.0/text-to-video", validation_alias="WAVESPEED_MODEL_PATH")
-    wavespeed_resolution: Literal["480p", "720p", "1080p"] = Field("480p", validation_alias="WAVESPEED_RESOLUTION")
-    wavespeed_generate_audio: bool = Field(True, validation_alias="WAVESPEED_GENERATE_AUDIO")
-    wavespeed_enable_prompt_expansion: bool = Field(False, validation_alias="WAVESPEED_ENABLE_PROMPT_EXPANSION")
-    wavespeed_negative_prompt_mode: Literal["drop", "append"] = Field("drop", validation_alias="WAVESPEED_NEGATIVE_PROMPT_MODE")
-    wavespeed_request_timeout_seconds: float = Field(30.0, validation_alias="WAVESPEED_REQUEST_TIMEOUT_SECONDS")
+    # Veo 3.1 Lite / Gemini API Config
+    video_provider: str = Field("veo", validation_alias="VIDEO_PROVIDER")
+    gemini_api_key: SecretStr = Field(SecretStr(""), validation_alias="GEMINI_API_KEY")
+    veo_base_url: str = Field("https://generativelanguage.googleapis.com/v1beta", validation_alias="VEO_BASE_URL")
+    veo_model: str = Field("veo-3.1-lite-generate-preview", validation_alias="VEO_MODEL")
+    veo_resolution: Literal["720p", "1080p"] = Field("720p", validation_alias="VEO_RESOLUTION")
+    veo_person_generation: str = Field("", validation_alias="VEO_PERSON_GENERATION")
+    veo_negative_prompt_mode: Literal["drop", "append"] = Field("drop", validation_alias="VEO_NEGATIVE_PROMPT_MODE")
+    veo_request_timeout_seconds: float = Field(30.0, validation_alias="VEO_REQUEST_TIMEOUT_SECONDS")
+    veo_download_timeout_seconds: float = Field(120.0, validation_alias="VEO_DOWNLOAD_TIMEOUT_SECONDS")
+    veo_max_prompt_tokens: int = Field(1000, validation_alias="VEO_MAX_PROMPT_TOKENS")
 
     # Cost / safety guards (apply to real providers only, never to the mock)
     video_job_max_wait_seconds: int = Field(900, validation_alias="VIDEO_JOB_MAX_WAIT_SECONDS")

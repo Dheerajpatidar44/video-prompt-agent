@@ -37,9 +37,14 @@ def init_db():
             error_message TEXT,
             retry_count INTEGER DEFAULT 0,
             submitted_at DATETIME,
-            completed_at DATETIME
+            completed_at DATETIME,
+            duration_seconds REAL
         )
     """)
     conn.execute("CREATE INDEX IF NOT EXISTS idx_video_jobs_project ON video_jobs(project_id)")
+    try:
+        conn.execute("ALTER TABLE video_jobs ADD COLUMN duration_seconds REAL")
+    except sqlite3.OperationalError:
+        pass
     conn.commit()
     conn.close()

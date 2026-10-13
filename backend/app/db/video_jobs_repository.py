@@ -22,8 +22,8 @@ def create_job(job: VideoJob) -> None:
             INSERT INTO video_jobs
                 (job_id, project_id, prompt_id, shot_id, sequence_number,
                  status, external_job_id, video_url, error_message,
-                 retry_count, submitted_at, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 retry_count, submitted_at, completed_at, duration_seconds)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 job.job_id, job.project_id, job.prompt_id, job.shot_id,
@@ -31,6 +31,7 @@ def create_job(job: VideoJob) -> None:
                 job.video_url, job.error_message, job.retry_count,
                 job.submitted_at.isoformat() if job.submitted_at else None,
                 job.completed_at.isoformat() if job.completed_at else None,
+                job.duration_seconds,
             ),
         )
         conn.commit()
@@ -45,11 +46,11 @@ def update_job_status(job_id: str, status: VideoJobStatus, **fields) -> None:
     """Update a job's status and any additional fields.
 
     Accepted keyword fields: external_job_id, video_url, error_message,
-    retry_count, submitted_at, completed_at.
+    retry_count, submitted_at, completed_at, duration_seconds.
     """
     allowed = {
         "external_job_id", "video_url", "error_message",
-        "retry_count", "submitted_at", "completed_at",
+        "retry_count", "submitted_at", "completed_at", "duration_seconds",
     }
     sets = ["status = ?"]
     params: list = [status.value]

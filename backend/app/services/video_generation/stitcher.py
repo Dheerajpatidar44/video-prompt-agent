@@ -21,7 +21,7 @@ import os
 import shutil
 import subprocess
 import tempfile
-from typing import List
+from typing import List, Optional
 
 import httpx
 
@@ -61,6 +61,43 @@ def _run_ffmpeg(cmd: List[str]) -> subprocess.CompletedProcess:
         raise StitchingError(
             f"ffmpeg timed out after {FFMPEG_TIMEOUT_SECONDS}s while stitching."
         )
+
+
+def _get_clip_duration(file_path: str) -> Optional[float]:
+    """Inspect clip duration using ffprobe. Returns None if ffprobe fails or is missing."""
+    try:
+        cmd = [
+            "ffprobe", "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            file_path,
+        ]
+        res = subprocess.run(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=10,
+        )
+        if res.returncode == 0:
+            out_str = res.stdout.decode(errors="replace").strip()
+            if out_str:
+                return float(out_str)
+    except Exception:
+        pass
+    return None
+
+
+def _trim_clip(input_path: str, output_path: str, duration_seconds: float) -> subprocess.CompletedProcess:
+    """Trim a video clip to duration_seconds using ffmpeg."""
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", input_path,
+        "-t", f"{duration_seconds:.2f}",
+        "-c:v", "libx264", "-preset", "veryfast",
+        "-c:a", "aac",
+        output_path,
+    ]
+    return _run_ffmpeg(cmd)
 
 
 def _build_concat_cmd(concat_list_path: str, output_path: str, reencode: bool) -> List[str]:
@@ -103,24 +140,66 @@ async def stitch_project_videos(project_id: str) -> str | None:
     output_path = os.path.join(tmp_dir, "final_output.mp4")
 
     try:
-        # 1. Download each clip to a local file.
+        # 1. Download each clip to a local file and trim to planned duration if needed.
         clip_paths: List[str] = []
         skipped_shots: List[str] = []
+        has_trimmed_clips = False
+
         async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
             for idx, job in enumerate(completed):
-                clip_path = os.path.join(tmp_dir, f"clip_{idx:04d}.mp4")
+                raw_clip_path = os.path.join(tmp_dir, f"clip_{idx:04d}.mp4")
                 try:
                     resp = await client.get(job.video_url)
                     resp.raise_for_status()
-                    with open(clip_path, "wb") as f:
+                    with open(raw_clip_path, "wb") as f:
                         f.write(resp.content)
-                    clip_paths.append(clip_path)
                 except httpx.HTTPError as exc:
                     logger.error(
                         f"Failed to download clip for shot {job.shot_id}: {exc}. "
                         f"Skipping this clip."
                     )
                     skipped_shots.append(job.shot_id)
+                    continue
+
+                # Check if clip needs trimming to match planned duration
+                chosen_path = raw_clip_path
+                if job.duration_seconds and job.duration_seconds > 0:
+                    actual_dur = await asyncio.to_thread(_get_clip_duration, raw_clip_path)
+                    needs_trim = False
+                    if actual_dur is not None:
+                        # If actual clip duration is longer than planned duration by more than 0.2s
+                        if actual_dur > job.duration_seconds + 0.2:
+                            needs_trim = True
+                    else:
+                        # Fallback without ffprobe: compare against Veo billing tiers
+                        from app.services.video_generation.cost import billed_seconds
+                        billed = billed_seconds(int(job.duration_seconds))
+                        if job.duration_seconds < billed:
+                            needs_trim = True
+
+                    if needs_trim:
+                        trimmed_clip_path = os.path.join(tmp_dir, f"clip_{idx:04d}_trimmed.mp4")
+                        logger.info(
+                            f"Trimming shot {job.shot_id} clip to planned duration {job.duration_seconds:.2f}s "
+                            f"(original: {actual_dur or 'unprobed'}s)."
+                        )
+                        proc = await asyncio.to_thread(
+                            _trim_clip, raw_clip_path, trimmed_clip_path, job.duration_seconds
+                        )
+                        if (
+                            proc.returncode == 0
+                            and os.path.exists(trimmed_clip_path)
+                            and os.path.getsize(trimmed_clip_path) > 0
+                        ):
+                            chosen_path = trimmed_clip_path
+                            has_trimmed_clips = True
+                        else:
+                            trim_err = proc.stderr.decode(errors="replace") if proc else "unknown error"
+                            logger.warning(
+                                f"Failed to trim clip for shot {job.shot_id}: {trim_err[-200:]}. Using raw clip."
+                            )
+
+                clip_paths.append(chosen_path)
 
         if skipped_shots:
             logger.warning(
@@ -139,12 +218,13 @@ async def stitch_project_videos(project_id: str) -> str | None:
                 safe_path = path.replace("\\", "/")
                 f.write(f"file '{safe_path}'\n")
 
-        # 3. Run ffmpeg concat: fast stream-copy first, re-encode as a fallback.
-        cmd = _build_concat_cmd(concat_list_path, output_path, reencode=False)
+        # 3. Run ffmpeg concat: if any clip was trimmed, start directly with re-encode;
+        # otherwise try fast stream-copy first, re-encode as a fallback.
+        cmd = _build_concat_cmd(concat_list_path, output_path, reencode=has_trimmed_clips)
         logger.info(f"Running ffmpeg: {' '.join(cmd)}")
         proc = await asyncio.to_thread(_run_ffmpeg, cmd)
 
-        if proc.returncode != 0:
+        if proc.returncode != 0 and not has_trimmed_clips:
             fast_err = proc.stderr.decode(errors="replace")
             logger.warning(
                 f"ffmpeg stream-copy failed (rc={proc.returncode}); clips may have "

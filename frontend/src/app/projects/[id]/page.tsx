@@ -20,7 +20,7 @@ export default function ProjectDetailsPage() {
   const [scenePlan, setScenePlan] = useState<MasterScenePlan | null>(null);
   const [prompts, setPrompts] = useState<PromptSet | null>(null);
   const [videoStatus, setVideoStatus] = useState<any>(null);
-  const [showFullVideo, setShowFullVideo] = useState(false);
+  const [showFullVideo, setShowFullVideo] = useState(true);
   const [previewAspect, setPreviewAspect] = useState<number | null>(null);
   const [previewProgress, setPreviewProgress] = useState(0);
 
@@ -217,10 +217,14 @@ export default function ProjectDetailsPage() {
               </div>
               <div className="text-center">
                 <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent mb-2">
-                  Generating your final video...
+                  {videoStatus?.completed_shots > 0 && videoStatus?.completed_shots === videoStatus?.total_shots && !videoStatus?.final_video_url
+                    ? "Stitching your final video..."
+                    : `Generating video shots (${videoStatus?.completed_shots || 0}/${videoStatus?.total_shots || 0} completed)...`}
                 </h2>
                 <p className="text-gray-400 text-sm">
-                  Our multi-agent system is working on your project.
+                  {videoStatus?.completed_shots > 0 && videoStatus?.completed_shots === videoStatus?.total_shots && !videoStatus?.final_video_url
+                    ? "FFmpeg is merging all generated scenes into a final continuous video."
+                    : "Our multi-agent system is working on your project."}
                 </p>
               </div>
             </motion.div>

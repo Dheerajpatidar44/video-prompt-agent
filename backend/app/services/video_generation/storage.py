@@ -6,7 +6,7 @@ is a known limitation acceptable for this phase given typical AI-generated clip
 sizes (a few MB each).
 """
 import logging
-from typing import Optional
+from typing import Optional, Callable, Awaitable
 
 import httpx
 
@@ -24,21 +24,29 @@ async def store_video(
     temporary_url: str,
     project_id: str,
     shot_id: str,
+    *,
+    downloader: Optional[Callable[[str], Awaitable[bytes]]] = None,
 ) -> str:
     """Download video from ``temporary_url`` and persist to Cloudinary.
 
     Returns the permanent Cloudinary ``secure_url``.
     """
     logger.info(f"Downloading video for shot {shot_id} from: {temporary_url}")
-    try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            resp = await client.get(temporary_url)
-            resp.raise_for_status()
-            video_bytes = resp.content
-    except httpx.HTTPError as exc:
-        raise VideoStorageError(
-            f"Failed to download video from {temporary_url}: {exc}"
-        ) from exc
+    if downloader is not None:
+        try:
+            video_bytes = await downloader(temporary_url)
+        except Exception as exc:
+            raise VideoStorageError(f"Failed to download video: {exc}") from exc
+    else:
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.get(temporary_url)
+                resp.raise_for_status()
+                video_bytes = resp.content
+        except httpx.HTTPError as exc:
+            raise VideoStorageError(
+                f"Failed to download video from {temporary_url}: {exc}"
+            ) from exc
 
     logger.info(
         f"Downloaded {len(video_bytes)} bytes for shot {shot_id}. "

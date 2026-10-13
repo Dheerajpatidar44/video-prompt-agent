@@ -24,10 +24,15 @@ async def get_video_status(project_id: str):
 
     status = "IN_PROGRESS"
     if completed_shots + failed_shots == total_shots:
-        if failed_shots == 0:
-            status = "COMPLETED"
-        else:
+        if final_video_url:
+            if failed_shots == 0:
+                status = "COMPLETED"
+            else:
+                status = "PARTIAL_FAILURE"
+        elif completed_shots == 0:
             status = "PARTIAL_FAILURE"
+        else:
+            status = "IN_PROGRESS"
 
     return ProjectVideoStatus(
         project_id=project_id,

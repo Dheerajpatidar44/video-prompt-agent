@@ -26,6 +26,16 @@ class PermanentVideoError(VideoGenerationError):
 
 class VideoGenerationClient(ABC):
 
+    requires_authenticated_download: bool = False
+
+    async def download_video(self, video_url: str) -> bytes:
+        """Providers whose result URLs need credentials override this.
+
+        The key never leaves the client.  The default raises NotImplementedError
+        so providers that do *not* need credentials never call this path.
+        """
+        raise NotImplementedError
+
     @abstractmethod
     async def submit_job(
         self,

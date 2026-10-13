@@ -34,7 +34,12 @@ async def _process_completed_job(job, result: dict) -> None:
         return
 
     try:
-        permanent_url = await store_video(temp_url, job.project_id, job.shot_id)
+        client = get_video_client()
+        downloader = client.download_video if getattr(client, "requires_authenticated_download", False) else None
+        if downloader:
+            permanent_url = await store_video(temp_url, job.project_id, job.shot_id, downloader=downloader)
+        else:
+            permanent_url = await store_video(temp_url, job.project_id, job.shot_id)
         repo.update_job_status(
             job.job_id,
             VideoJobStatus.COMPLETED,
@@ -56,6 +61,19 @@ async def _handle_failed_job(job, result: dict, client) -> None:
     error_msg = result.get("error", "Unknown provider error")
     max_retries = getattr(settings, "video_max_retries", 2)
     
+    if result.get("retryable") is False:
+        logger.error(
+            f"Job {job.job_id} failed with non-retryable error: {error_msg}. Terminal FAILED."
+        )
+        repo.update_job_status(
+            job.job_id,
+            VideoJobStatus.FAILED,
+            error_message=error_msg,
+            completed_at=datetime.now(UTC)
+        )
+        _job_error_counts.pop(job.job_id, None)
+        return
+
     if job.retry_count < max_retries:
         new_count = job.retry_count + 1
         logger.warning(
@@ -77,7 +95,7 @@ async def _handle_failed_job(job, result: dict, client) -> None:
                 
             if not getattr(settings, "use_mock_video_api", False):
                 from app.services.video_generation.cost import estimate_clip_cost_usd
-                cost = estimate_clip_cost_usd(prompt.duration_seconds, getattr(settings, "wavespeed_resolution", "480p"))
+                cost = estimate_clip_cost_usd(prompt.duration_seconds, getattr(settings, "veo_resolution", "720p"))
                 logger.info(f"Retrying job {job.job_id} at estimated cost: ${cost:.2f}")
                 
             # 2. Resubmit

@@ -123,3 +123,66 @@ async def test_provider_failed(fake_repo, fake_client, monkeypatch):
     assert len(fake_repo.updates) == 1
     assert fake_repo.updates[0][1] == VideoJobStatus.FAILED
     assert fake_repo.updates[0][2]["error_message"] == "bad prompt"
+
+
+@pytest.mark.asyncio
+async def test_non_retryable_failure_no_resubmit(fake_repo, fake_client, monkeypatch):
+    job = VideoJob(
+        job_id="1", project_id="p1", prompt_id="pr1", shot_id="s1", sequence_number=1,
+        status=VideoJobStatus.SUBMITTED, external_job_id="ext1"
+    )
+    fake_repo.jobs.append(job)
+    fake_client.status = "FAILED"
+    fake_client.err_msg = "Safety blocked"
+
+    async def mock_check_status(*a):
+        return {"status": "FAILED", "error": "Safety blocked", "retryable": False}
+
+    fake_client.check_status = mock_check_status
+
+    resubmitted = False
+    async def mock_submit(*a, **k):
+        nonlocal resubmitted
+        resubmitted = True
+        return "new_id"
+
+    fake_client.submit_job = mock_submit
+
+    await poller.run_poller_loop()
+    assert len(fake_repo.updates) == 1
+    assert fake_repo.updates[0][1] == VideoJobStatus.FAILED
+    assert "Safety blocked" in fake_repo.updates[0][2]["error_message"]
+    assert resubmitted is False
+
+
+@pytest.mark.asyncio
+async def test_poller_passes_downloader_when_required(fake_repo, monkeypatch):
+    job = VideoJob(
+        job_id="1", project_id="p1", prompt_id="pr1", shot_id="s1", sequence_number=1,
+        status=VideoJobStatus.SUBMITTED, external_job_id="ext1"
+    )
+    fake_repo.jobs.append(job)
+
+    class AuthClient:
+        requires_authenticated_download = True
+        async def check_status(self, *a):
+            return {"status": "COMPLETED", "video_url": "https://storage.googleapis.com/vid.mp4"}
+        async def download_video(self, url):
+            return b"bytes"
+
+    client = AuthClient()
+    monkeypatch.setattr(poller, "get_video_client", lambda: client)
+
+    captured_downloader = None
+    async def fake_store_video(url, pid, sid, downloader=None):
+        nonlocal captured_downloader
+        captured_downloader = downloader
+        return "https://cloudinary/permanent.mp4"
+
+    monkeypatch.setattr(poller, "store_video", fake_store_video)
+
+    await poller.run_poller_loop()
+    assert len(fake_repo.updates) == 1
+    assert fake_repo.updates[0][1] == VideoJobStatus.COMPLETED
+    assert captured_downloader == client.download_video
+

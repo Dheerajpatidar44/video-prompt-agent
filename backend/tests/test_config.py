@@ -21,3 +21,16 @@ def test_config_loads_defaults():
     # Restore env
     os.environ.clear()
     os.environ.update(old_env)
+
+
+def test_gemini_api_key_optional_and_hidden_in_repr():
+    settings = Settings(_env_file=None, anthropic_api_key="dummy-key-for-test", gemini_api_key="super_secret_key_999")
+    assert settings.gemini_api_key.get_secret_value() == "super_secret_key_999"
+    # Key must NOT appear in repr
+    assert "super_secret_key_999" not in repr(settings)
+    assert "super_secret_key_999" not in repr(settings.gemini_api_key)
+
+    # Loads fine without GEMINI_API_KEY provided (defaults to blank SecretStr)
+    settings_no_key = Settings(_env_file=None, anthropic_api_key="dummy-key-for-test")
+    assert settings_no_key.gemini_api_key.get_secret_value() == ""
+

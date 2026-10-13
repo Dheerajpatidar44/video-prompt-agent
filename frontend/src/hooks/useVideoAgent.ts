@@ -15,6 +15,9 @@ export interface VideoAgentState {
   isSubmitting: boolean;
   videoStatus: string | null;
   finalVideoUrl: string | null;
+  completedShots?: number;
+  totalShots?: number;
+  isStitching?: boolean;
 }
 
 export function useVideoAgent() {
@@ -31,6 +34,9 @@ export function useVideoAgent() {
     isSubmitting: false,
     videoStatus: null,
     finalVideoUrl: null,
+    completedShots: 0,
+    totalShots: 0,
+    isStitching: false,
   });
 
   const setPartial = (partial: Partial<VideoAgentState>) =>
@@ -38,10 +44,10 @@ export function useVideoAgent() {
 
   // Polling
   useEffect(() => {
-    const { threadId, status, videoStatus } = state;
+    const { threadId, status, videoStatus, finalVideoUrl } = state;
     if (!threadId) return;
     if (["IDLE", "WAITING_FOR_USER", "ERROR"].includes(status)) return;
-    if (status === "COMPLETED" && videoStatus === "COMPLETED") return;
+    if (status === "COMPLETED" && (videoStatus === "COMPLETED" || videoStatus === "PARTIAL_FAILURE") && finalVideoUrl) return;
 
     const interval = setInterval(async () => {
       try {
@@ -93,19 +99,40 @@ export function useVideoAgent() {
           }
         }
 
-        if (status === "COMPLETED" && videoStatus !== "COMPLETED") {
+        if (status === "COMPLETED" && (!finalVideoUrl || videoStatus !== "COMPLETED")) {
           try {
             const vData = await ApiClient.getVideoStatus(threadId);
-            const fallbackUrl = vData.jobs?.find((j: any) => j.status === "COMPLETED")?.video_url;
-            
-            if (vData.final_video_url || fallbackUrl) {
+            const isStitching = (vData.completed_shots > 0 && vData.completed_shots === vData.total_shots && !vData.final_video_url) || vData.status === "STITCHING";
+
+            if (vData.final_video_url) {
               setPartial({ 
                 videoStatus: vData.status, 
-                finalVideoUrl: vData.final_video_url || fallbackUrl 
+                finalVideoUrl: vData.final_video_url,
+                completedShots: vData.completed_shots,
+                totalShots: vData.total_shots,
+                isStitching: false,
               });
             } else if (vData.status === "COMPLETED" || vData.status === "PARTIAL_FAILURE") {
-              // No video could be generated at all
-              setPartial({ videoStatus: vData.status, finalVideoUrl: null });
+              const fallbackUrl = vData.jobs?.find((j: any) => j.status === "COMPLETED")?.video_url;
+              if (fallbackUrl) {
+                setPartial({ 
+                  videoStatus: vData.status, 
+                  finalVideoUrl: fallbackUrl,
+                  completedShots: vData.completed_shots,
+                  totalShots: vData.total_shots,
+                  isStitching: false,
+                });
+              } else if (vData.completed_shots === 0 && vData.failed_shots === vData.total_shots) {
+                // All failed
+                setPartial({ videoStatus: "FAILED", finalVideoUrl: null, isStitching: false });
+              }
+            } else {
+              setPartial({
+                videoStatus: isStitching ? "STITCHING" : vData.status,
+                completedShots: vData.completed_shots,
+                totalShots: vData.total_shots,
+                isStitching,
+              });
             }
           } catch (_) {
             // Not ready yet
@@ -114,10 +141,10 @@ export function useVideoAgent() {
       } catch (err: any) {
         console.error("[Polling error]", err);
       }
-    }, 5000);
+    }, 4000);
 
     return () => clearInterval(interval);
-  }, [state.threadId, state.status]);
+  }, [state.threadId, state.status, state.videoStatus, state.finalVideoUrl]);
 
   const analyzeScript = async (
     file?: File,

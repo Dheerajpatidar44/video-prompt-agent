@@ -35,8 +35,10 @@ async def generate_videos(state: AgentState) -> AgentState:
     if not settings.use_mock_video_api:
         durations = [prompt.duration_seconds for prompt in prompt_set.prompts]
         shots = len(durations)
-        total_seconds = sum(billed_seconds(d) for d in durations)
-        cost = estimate_project_cost_usd(durations, settings.wavespeed_resolution)
+        lengthened = sum(1 for d in durations if round(float(d), 3) < 4)
+        exceeding = sum(1 for d in durations if round(float(d), 3) > 8)
+        total_seconds = sum(billed_seconds(d, settings.veo_resolution) for d in durations)
+        cost = estimate_project_cost_usd(durations, settings.veo_resolution)
         
         limit_hit = None
         if shots > settings.video_max_shots_per_project:
@@ -47,12 +49,18 @@ async def generate_videos(state: AgentState) -> AgentState:
             limit_hit = f"cost (${cost:.2f} > ${settings.video_max_estimated_cost_usd:.2f}, raise VIDEO_MAX_ESTIMATED_COST_USD)"
             
         if limit_hit:
-            logger.warning(f"Cost guard blocked video generation: exceeded {limit_hit}.")
+            logger.warning(
+                f"Cost guard blocked video generation: exceeded {limit_hit}. "
+                f"({lengthened} shots lengthened to 4s, {exceeding} exceed 8s)."
+            )
             return {
                 **state,
                 "video_generation_status": "BLOCKED_COST_GUARD",
             }
-        logger.info(f"Video generation project estimated cost: ${cost:.2f} for {shots} shots ({total_seconds} billed seconds).")
+        logger.info(
+            f"Video generation project estimated cost: ${cost:.2f} for {shots} shots "
+            f"({total_seconds} billed seconds, {lengthened} lengthened to 4s, {exceeding} exceed 8s)."
+        )
 
     logger.info(f"Generating videos for project {project_id} ({len(prompt_set.prompts)} prompts).")
 
@@ -69,7 +77,8 @@ async def generate_videos(state: AgentState) -> AgentState:
             shot_id=prompt.shot_id,
             sequence_number=prompt.sequence_number,
             status=VideoJobStatus.QUEUED,
-            submitted_at=datetime.now(UTC)
+            submitted_at=datetime.now(UTC),
+            duration_seconds=prompt.duration_seconds,
         )
         repo.create_job(job)
 

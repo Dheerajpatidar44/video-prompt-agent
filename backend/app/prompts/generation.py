@@ -14,6 +14,7 @@ SCENE PLANNING RULES:
 - Each scene contains one or more SHOTS (camera-specific visual units).
 - Scene durations must sum to EXACTLY the total target duration.
 - Shot durations within a scene must sum to EXACTLY that scene's duration.
+- SHOT DURATION ALIGNMENT: Align shot durations with {target_tool}'s native clip lengths (for Veo: each shot must strictly be 4s, 6s, or 8s; never use arbitrary 1s, 2s, 3s micro-shots unless the total target duration mathematically requires a remainder).
 - Use exact character/location/product IDs from the specification.
 - Do NOT invent characters, locations, products, or actions not in the specification.
 

@@ -1,7 +1,7 @@
 """Factory for obtaining the active VideoGenerationClient.
 
 Returns the mock client by default (controlled by settings.use_mock_video_api).
-Once a real video model is chosen, add a concrete client branch here.
+The real provider is Google Veo 3.1 Lite via the Gemini API.
 
 IMPORTANT: This returns a process-wide singleton. The mock client keeps job
 state (submitted job ids, poll counts) in memory, so every caller — the
@@ -37,22 +37,23 @@ def get_video_client() -> VideoGenerationClient:
         _client_instance = MockVideoClient()
         logger.info("Video client initialized: MockVideoClient (singleton)")
         return _client_instance
-    elif settings.video_provider == "wavespeed":
-        from app.services.video_generation.wavespeed_client import WaveSpeedClient
-        _client_instance = WaveSpeedClient(
-            api_key=settings.wavespeed_api_key.get_secret_value(),
-            base_url=settings.wavespeed_base_url,
-            model_path=settings.wavespeed_model_path,
-            resolution=settings.wavespeed_resolution,
-            generate_audio=settings.wavespeed_generate_audio,
-            enable_prompt_expansion=settings.wavespeed_enable_prompt_expansion,
-            negative_prompt_mode=settings.wavespeed_negative_prompt_mode,
-            request_timeout=settings.wavespeed_request_timeout_seconds,
+    elif settings.video_provider == "veo":
+        from app.services.video_generation.veo_client import VeoClient
+        _client_instance = VeoClient(
+            api_key=settings.gemini_api_key.get_secret_value(),
+            base_url=settings.veo_base_url,
+            model=settings.veo_model,
+            resolution=settings.veo_resolution,
+            person_generation=settings.veo_person_generation,
+            negative_prompt_mode=settings.veo_negative_prompt_mode,
+            request_timeout=settings.veo_request_timeout_seconds,
+            download_timeout=settings.veo_download_timeout_seconds,
+            max_prompt_tokens=settings.veo_max_prompt_tokens,
         )
-        logger.info("Video client initialized: WaveSpeedClient (singleton)")
+        logger.info("Video client initialized: VeoClient (singleton)")
         return _client_instance
     else:
-        raise ValueError(f"Unknown VIDEO_PROVIDER: {settings.video_provider!r}")
+        raise ValueError(f"Unknown VIDEO_PROVIDER: {settings.video_provider!r} (supported: 'veo')")
 
 
 def reset_video_client() -> None:

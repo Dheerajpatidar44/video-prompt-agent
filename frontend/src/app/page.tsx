@@ -30,7 +30,7 @@ export default function HomePage() {
   const [selectedTool, setSelectedTool] = useState<any>("Veo");
 
   // Video View States
-  const [showFullVideo, setShowFullVideo] = useState(false);
+  const [showFullVideo, setShowFullVideo] = useState(true);
   const [previewAspect, setPreviewAspect] = useState<number | null>(null);
   const [previewProgress, setPreviewProgress] = useState(0);
 
@@ -56,21 +56,23 @@ export default function HomePage() {
     setCharacterFiles([]);
     setProductFiles([]);
     setBrandFiles([]);
-    setShowFullVideo(false);
+    setShowFullVideo(true);
     setPreviewAspect(null);
     setPreviewProgress(0);
   };
+
+  const isVideoStitching = state.isStitching || state.videoStatus === "STITCHING";
+  const videoGenerating = state.status === "COMPLETED" && !state.finalVideoUrl && state.videoStatus !== "FAILED";
 
   const isLoading =
     state.status === "ANALYZING" ||
     state.status === "PLANNING" ||
     state.status === "GENERATING" ||
     state.status === "REVIEWING" ||
-    (state.status === "COMPLETED" && state.videoStatus !== "COMPLETED" && state.videoStatus !== "PARTIAL_FAILURE");
+    videoGenerating;
 
-  const videoGenerating = state.status === "COMPLETED" && state.videoStatus !== "COMPLETED" && state.videoStatus !== "PARTIAL_FAILURE";
-  const showFinalVideo = state.status === "COMPLETED" && (state.videoStatus === "COMPLETED" || state.videoStatus === "PARTIAL_FAILURE") && !!state.finalVideoUrl;
-  const showEmptyState = state.status === "COMPLETED" && (state.videoStatus === "COMPLETED" || state.videoStatus === "PARTIAL_FAILURE") && !state.finalVideoUrl;
+  const showFinalVideo = !!state.finalVideoUrl;
+  const showEmptyState = (state.status === "COMPLETED" || state.status === "ERROR") && state.videoStatus === "FAILED" && !state.finalVideoUrl;
 
   const canGenerate = (scriptText.trim().length > 0 || uploadedFile !== null) && !isLoading;
 
@@ -264,18 +266,22 @@ export default function HomePage() {
                 </div>
                 <div>
                   <h2 className="text-2xl font-bold bg-gradient-to-br from-blue-500 to-violet-500 bg-clip-text text-transparent mb-2">
-                    {videoGenerating
-                      ? "Generating your final video..."
-                      : state.status === "ANALYZING"
-                        ? "Analyzing your script..."
-                        : state.status === "PLANNING"
-                          ? "Drafting master scene plan..."
-                          : state.status === "GENERATING"
-                            ? "Generating visual prompts..."
-                            : "Reviewing and polishing prompts..."}
+                    {isVideoStitching
+                      ? "Stitching scenes into final video..."
+                      : videoGenerating
+                        ? `Rendering video shots (${state.completedShots || 0}/${state.totalShots || 0} completed)...`
+                        : state.status === "ANALYZING"
+                          ? "Analyzing your script..."
+                          : state.status === "PLANNING"
+                            ? "Drafting master scene plan..."
+                            : state.status === "GENERATING"
+                              ? "Generating visual prompts..."
+                              : "Reviewing and polishing prompts..."}
                   </h2>
                   <p className="text-[var(--color-text-secondary)] text-sm">
-                    Our multi-agent system is working on your project.
+                    {isVideoStitching
+                      ? "FFmpeg is merging your completed shots into a high-definition video."
+                      : "Our multi-agent system is working on your project."}
                   </p>
                 </div>
               </motion.div>
