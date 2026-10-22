@@ -14,7 +14,18 @@ SCENE PLANNING RULES:
 - Each scene contains one or more SHOTS (camera-specific visual units).
 - Scene durations must sum to EXACTLY the total target duration.
 - Shot durations within a scene must sum to EXACTLY that scene's duration.
-- SHOT DURATION ALIGNMENT: Align shot durations with {target_tool}'s native clip lengths (for Veo: each shot must strictly be 4s, 6s, or 8s; never use arbitrary 1s, 2s, 3s micro-shots unless the total target duration mathematically requires a remainder).
+- SHOT DURATION ALIGNMENT & HARD MINIMUMS:
+  * For Veo, each shot must strictly be 4s, 6s, or 8s. Arbitrary durations (1s, 2s, 3s, 5s, 7s) are STRICTLY FORBIDDEN.
+  * HARD 4-SECOND MINIMUM: Under NO circumstances should any shot or prompt have duration_seconds less than 4.0.
+  * ACTION MERGING (CRITICAL): If the script contains multiple fast-paced actions, rapid scene beats, or if the user/script asks for micro-scenes (e.g. asking for "two 2-second scenes" in a 4-second video), you MUST NOT split them into separate sub-4s shots. Instead, MERGE them into a SINGLE continuous 4-second shot/prompt. In that single prompt, describe the first action unfolding smoothly, followed immediately by the camera panning/flowing into the second action within that single 4s clip.
+  * For a 4-second total duration video on Veo, generate EXACTLY ONE shot of 4.0 seconds (1 prompt).
+  * Shot duration allocation guide for Veo:
+    - 4s video: exactly 1 shot of 4s
+    - 6s video: exactly 1 shot of 6s
+    - 8s video: 1 shot of 8s (or 2 shots of 4s)
+    - 10s video: 2 shots (Shot 1 = 6s, Shot 2 = 4s)
+    - 12s video: 2 shots of 6s (or 3 shots of 4s)
+    - 16s video: 2 shots of 8s (or 4 shots of 4s)
 - Use exact character/location/product IDs from the specification.
 - Do NOT invent characters, locations, products, or actions not in the specification.
 

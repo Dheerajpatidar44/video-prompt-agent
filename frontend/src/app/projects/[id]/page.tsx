@@ -25,42 +25,75 @@ export default function ProjectDetailsPage() {
   const [previewProgress, setPreviewProgress] = useState(0);
 
   useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (id) {
-      fetchProjectData();
-      interval = setInterval(fetchProjectData, 10000); // Poll every 10s
-    }
+    if (!id) return;
+
+    let isMounted = true;
+    let interval: NodeJS.Timeout | null = null;
+
+    // 1. Fetch prompts only once on initial load (prompts are static)
+    ApiClient.getPrompts(id)
+      .then((promptRes) => {
+        if (isMounted && promptRes?.prompt_set) {
+          setPrompts(promptRes.prompt_set);
+        }
+      })
+      .catch(() => {});
+
+    // 2. Poll video status only while actively generating
+    const checkVideoStatus = async () => {
+      try {
+        setError(null);
+        const vData = await ApiClient.getVideoStatus(id).catch(() => null);
+
+        if (!isMounted) return;
+
+        if (vData && vData.status) {
+          setVideoStatus(vData);
+
+          // Stop polling if video is completed, failed, or ready
+          const isDone =
+            vData.final_video_url ||
+            vData.status === "COMPLETED" ||
+            vData.status === "FAILED" ||
+            (vData.status === "PARTIAL_FAILURE" && vData.jobs?.some((j: any) => j.status === "COMPLETED"));
+
+          if (isDone && interval) {
+            clearInterval(interval);
+            interval = null;
+          }
+        } else {
+          // Fallback for legacy project or no active video jobs
+          setVideoStatus({ status: "COMPLETED", final_video_url: null });
+          if (interval) {
+            clearInterval(interval);
+            interval = null;
+          }
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          console.error(err);
+          setError(err.message || "Failed to load project details");
+        }
+      } finally {
+        if (isMounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    // First immediate check
+    checkVideoStatus().then(() => {
+      // Only start interval if still generating and mounted
+      if (isMounted) {
+        interval = setInterval(checkVideoStatus, 5000);
+      }
+    });
+
     return () => {
+      isMounted = false;
       if (interval) clearInterval(interval);
     };
   }, [id]);
-
-  const fetchProjectData = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      // Fetch in parallel
-      const [promptRes, vData] = await Promise.all([
-        ApiClient.getPrompts(id).catch(() => ({} as any)),
-        ApiClient.getVideoStatus(id).catch(() => null)
-      ]);
-
-      if (promptRes.prompt_set) setPrompts(promptRes.prompt_set);
-      if (vData && vData.status) {
-        setVideoStatus(vData);
-      } else if (promptRes.prompt_set) {
-        // Fallback for legacy projects without video jobs
-        setVideoStatus({ status: 'COMPLETED', final_video_url: null });
-      }
-      
-    } catch (err: any) {
-      console.error(err);
-      setError(err.message || "Failed to load project details");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleBack = () => {
     router.push("/projects");
@@ -182,7 +215,7 @@ export default function ProjectDetailsPage() {
                  </motion.div>
                </div>
              )
-          ) : (videoStatus?.status === 'COMPLETED' || videoStatus?.status === 'PARTIAL_FAILURE') ? (
+          ) : (videoStatus?.status === 'COMPLETED' || videoStatus?.status === 'PARTIAL_FAILURE' || videoStatus?.status === 'FAILED') ? (
              <div className="flex flex-col items-center justify-center p-32 space-y-4 text-center">
                <div className="bg-gray-900/50 p-4 rounded-full border border-gray-800 mb-2">
                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500">
@@ -200,6 +233,12 @@ export default function ProjectDetailsPage() {
                <p className="text-gray-400 max-w-md">
                  This project does not have a generated video. It may be a legacy project or the video generation failed.
                </p>
+               <button
+                 onClick={() => router.push("/")}
+                 className="mt-4 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl text-white font-medium text-sm transition cursor-pointer"
+               >
+                 Create New Video
+               </button>
              </div>
           ) : (
             <motion.div

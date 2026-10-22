@@ -95,7 +95,7 @@ async def _handle_failed_job(job, result: dict, client) -> None:
                 
             if not getattr(settings, "use_mock_video_api", False):
                 from app.services.video_generation.cost import estimate_clip_cost_usd
-                cost = estimate_clip_cost_usd(prompt.duration_seconds, getattr(settings, "veo_resolution", "720p"))
+                cost = estimate_clip_cost_usd(prompt.duration_seconds, getattr(settings, "veo_resolution", "720p"), model=getattr(settings, "veo_model", ""))
                 logger.info(f"Retrying job {job.job_id} at estimated cost: ${cost:.2f}")
                 
             # 2. Resubmit

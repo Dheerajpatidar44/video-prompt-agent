@@ -59,3 +59,16 @@ def test_estimate_project_cost():
     assert estimate_project_cost_usd([1.0, 5.0, 7.0], "720p") == 0.90
     # 1080p: 3 shots * 8s * $0.08 = 3 * 0.64 = 1.92
     assert estimate_project_cost_usd([1.0, 5.0, 7.0], "1080p") == 1.92
+
+
+def test_estimate_fast_model_cost():
+    # 720p: $0.10 / sec
+    assert estimate_clip_cost_usd(1.0, "720p", model="veo-3.1-fast-generate-001") == 0.40  # 4s * 0.10
+    assert estimate_clip_cost_usd(4.0, "720p", model="veo-3.1-fast-generate-001") == 0.40
+    assert estimate_clip_cost_usd(5.0, "720p", model="veo-3.1-fast-generate-001") == 0.60  # 6s * 0.10
+    assert estimate_clip_cost_usd(7.0, "720p", model="veo-3.1-fast-generate-001") == 0.80  # 8s * 0.10
+
+    # 1080p: $0.15 / sec, always 8s
+    assert estimate_clip_cost_usd(1.0, "1080p", model="veo-3.1-fast-generate-001") == 1.20
+    assert estimate_project_cost_usd([4.0, 4.0], "720p", model="veo-3.1-fast-generate-001") == 0.80
+

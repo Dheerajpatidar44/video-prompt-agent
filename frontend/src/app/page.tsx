@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Sparkles, AlertCircle, Play, Download } from "lucide-react";
 
@@ -34,12 +35,24 @@ export default function HomePage() {
   const [previewAspect, setPreviewAspect] = useState<number | null>(null);
   const [previewProgress, setPreviewProgress] = useState(0);
 
+  const router = useRouter();
+
   // Agent Logic
   const { state, analyzeScript, submitAnswers, setAnswer, reset } = useVideoAgent();
 
-  const handleGenerate = () => {
+  // Automatically redirect to dedicated project page once video generation begins
+  useEffect(() => {
+    if (
+      state.threadId &&
+      (state.status === "GENERATING_VIDEOS" || (state.status === "COMPLETED" && !state.finalVideoUrl))
+    ) {
+      router.push(`/projects/${state.threadId}`);
+    }
+  }, [state.threadId, state.status, state.finalVideoUrl, router]);
+
+  const handleGenerate = async () => {
     if (!scriptText.trim() && !uploadedFile) return;
-    analyzeScript(
+    const res = await analyzeScript(
       uploadedFile ?? undefined, 
       scriptText.trim() || undefined,
       selectedTool,
@@ -47,6 +60,16 @@ export default function HomePage() {
       productFiles,
       brandFiles
     );
+    if (res && res.thread_id && (res.status === "GENERATING_VIDEOS" || res.status === "COMPLETED")) {
+      router.push(`/projects/${res.thread_id}`);
+    }
+  };
+
+  const handleSubmitAnswers = async () => {
+    const res = await submitAnswers();
+    if (res && (res.status === "GENERATING_VIDEOS" || res.status === "COMPLETED")) {
+      router.push(`/projects/${state.threadId}`);
+    }
   };
 
   const handleReset = () => {
@@ -62,17 +85,24 @@ export default function HomePage() {
   };
 
   const isVideoStitching = state.isStitching || state.videoStatus === "STITCHING";
-  const videoGenerating = state.status === "COMPLETED" && !state.finalVideoUrl && state.videoStatus !== "FAILED";
+  const videoGenerating =
+    (state.status === "GENERATING_VIDEOS" || state.status === "COMPLETED") &&
+    !state.finalVideoUrl &&
+    state.videoStatus !== "FAILED";
 
   const isLoading =
     state.status === "ANALYZING" ||
     state.status === "PLANNING" ||
     state.status === "GENERATING" ||
     state.status === "REVIEWING" ||
+    state.status === "GENERATING_VIDEOS" ||
     videoGenerating;
 
   const showFinalVideo = !!state.finalVideoUrl;
-  const showEmptyState = (state.status === "COMPLETED" || state.status === "ERROR") && state.videoStatus === "FAILED" && !state.finalVideoUrl;
+  const showEmptyState =
+    (state.status === "COMPLETED" || state.status === "ERROR") &&
+    state.videoStatus === "FAILED" &&
+    !state.finalVideoUrl;
 
   const canGenerate = (scriptText.trim().length > 0 || uploadedFile !== null) && !isLoading;
 
@@ -88,7 +118,7 @@ export default function HomePage() {
             {showFinalVideo && state.finalVideoUrl && (
               showFullVideo ? (
                 <motion.div key="final_video" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="flex-1 flex flex-col h-full w-full">
-                  <FinalVideoView videoUrl={state.finalVideoUrl} prompts={state.prompts?.prompts || []} totalDuration={state.prompts?.total_duration || 12} />
+                  <FinalVideoView videoUrl={state.finalVideoUrl} prompts={state.prompts?.prompts || []} totalDuration={state.prompts?.total_duration} />
                 </motion.div>
               ) : (
                 <motion.div key="preview_video" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="flex-1 flex flex-col items-start justify-start max-w-6xl mx-auto w-full pt-8">
@@ -296,7 +326,7 @@ export default function HomePage() {
                     questions={state.questions}
                     answers={state.answers}
                     onAnswerChange={setAnswer}
-                    onSubmit={submitAnswers}
+                    onSubmit={handleSubmitAnswers}
                     isSubmitting={state.isSubmitting}
                   />
                 </div>

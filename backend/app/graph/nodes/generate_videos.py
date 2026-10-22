@@ -38,7 +38,7 @@ async def generate_videos(state: AgentState) -> AgentState:
         lengthened = sum(1 for d in durations if round(float(d), 3) < 4)
         exceeding = sum(1 for d in durations if round(float(d), 3) > 8)
         total_seconds = sum(billed_seconds(d, settings.veo_resolution) for d in durations)
-        cost = estimate_project_cost_usd(durations, settings.veo_resolution)
+        cost = estimate_project_cost_usd(durations, settings.veo_resolution, model=settings.veo_model)
         
         limit_hit = None
         if shots > settings.video_max_shots_per_project:
@@ -96,9 +96,20 @@ async def generate_videos(state: AgentState) -> AgentState:
                 # The instructions say: "If a relevant reference image URL exists for the shot's primary character/product (check what's available in spec/continuity_bible), pass it as reference_image_url".
                 # For now, let's just grab the first character or product reference asset if it exists.
                 for asset in spec.reference_assets:
-                    if asset.type in ("CHARACTER_REFERENCE", "PRODUCT_IMAGE") and asset.reference_path:
-                        ref_url = asset.reference_path
+                    path = getattr(asset, "reference_path", "") or ""
+                    if asset.type in ("CHARACTER_REFERENCE", "PRODUCT_IMAGE") and path.startswith(("http://", "https://")):
+                        ref_url = path
                         break
+
+                if not ref_url:
+                    ref_dict = state.get("reference_images") or {}
+                    chars = ref_dict.get("character") or []
+                    prods = ref_dict.get("product") or []
+                    brands = ref_dict.get("brand") or []
+                    for candidate in (chars + prods + brands):
+                        if candidate and candidate.startswith(("http://", "https://")):
+                            ref_url = candidate
+                            break
 
                 ext_job_id = await client.submit_job(
                     prompt_text=prompt.prompt_text,

@@ -17,7 +17,8 @@ HALLUCINATED_CAMERA_PARAMS = [
 def validate_prompt_set(
     spec: VideoSpecification,
     master_plan: MasterScenePlan,
-    prompt_set: PromptSet
+    prompt_set: PromptSet,
+    target_tool: str = "Veo",
 ) -> PromptSet:
     
     issues: List[ValidationIssue] = []
@@ -94,6 +95,16 @@ def validate_prompt_set(
                  related_entity_id=prompt.shot_id,
                  blocking=True
              ))
+
+        # Check tool duration constraints (e.g. Veo minimum 4.0s)
+        if target_tool == "Veo" and prompt.duration_seconds < 4.0:
+            issues.append(ValidationIssue(
+                issue_type="SHOT_DURATION_TOO_SHORT",
+                description=f"Prompt for shot {prompt.shot_id} has duration {prompt.duration_seconds}s, but Veo native clips must be at least 4.0s.",
+                severity="WARNING",
+                related_entity_id=prompt.shot_id,
+                blocking=False
+            ))
              
         # Source actions check
         missing_actions = set(target_shot.source_actions) - set(prompt.source_actions)

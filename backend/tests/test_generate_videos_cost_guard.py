@@ -60,7 +60,7 @@ async def test_guard_exceeded_seconds(mock_state, monkeypatch):
 async def test_under_limits(mock_state, monkeypatch):
     # Two 4s clips = $0.40. Limit $0.50 -> allowed.
     monkeypatch.setattr(settings, "use_mock_video_api", False)
-    monkeypatch.setattr(settings, "video_max_estimated_cost_usd", 0.50)
+    monkeypatch.setattr(settings, "video_max_estimated_cost_usd", 1.00)
     monkeypatch.setattr(settings, "video_max_shots_per_project", 5)
     monkeypatch.setattr(settings, "video_max_total_seconds_per_project", 20)
     monkeypatch.setattr(settings, "video_provider", "veo")

@@ -5,6 +5,7 @@ export type AgentStatus =
   | 'PLANNING' 
   | 'GENERATING' 
   | 'REVIEWING' 
+  | 'GENERATING_VIDEOS'
   | 'COMPLETED' 
   | 'ERROR';
 

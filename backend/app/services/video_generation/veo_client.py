@@ -1,20 +1,16 @@
-"""Google Veo 3.1 Lite client for video generation via the Gemini API.
+"""Google Veo 3.1 Lite client for video generation using the official google-genai SDK (Vertex AI).
 
-Uses plain REST through httpx — no Google SDK dependency.
-
-Submit:  POST {base}/models/{model}:predictLongRunning
-Poll:    GET  {base}/{operation_name}
-Download: GET <video uri> with the API key header (authenticated download)
+Submits video generation jobs, polls operation status, and returns video bytes
+for storage and FFmpeg stitching.
 """
 import asyncio
 import logging
 import math
-import random
-import re
-from typing import Optional
-from urllib.parse import urljoin, urlparse
+import os
+from typing import Optional, Any
 
-import httpx
+from google import genai
+from google.genai import types
 
 from app.services.video_generation.base_client import (
     VideoGenerationClient,
@@ -25,179 +21,93 @@ from app.services.video_generation.cost import billed_seconds, estimate_clip_cos
 
 logger = logging.getLogger(__name__)
 
-AUTH_HEADER = "x-goog-api-key"
-
-# Whether durationSeconds is sent as int (True) or string (False).
-# Open question — default to integer based on REST samples.
-DURATION_AS_INT = True
-
-# Safety cap for video download size.
-MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024  # 100 MB
-
-# Max redirects when downloading authenticated video.
-MAX_DOWNLOAD_REDIRECTS = 5
-
-# Regex for validating external_job_id (operation names like "models/veo-3.1.../operations/abc123")
-_OPERATION_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+(/[A-Za-z0-9_\-.]+)*$")
-
 
 class VeoClient(VideoGenerationClient):
-    """Gemini API client for Veo 3.1 Lite text-to-video generation."""
+    """Client for Google Veo 3.1 text-to-video generation via google-genai."""
 
     requires_authenticated_download: bool = True
 
     def __init__(
         self,
         api_key: str,
-        base_url: str,
-        model: str,
-        resolution: str,
-        person_generation: str,
-        negative_prompt_mode: str,
-        request_timeout: float,
-        download_timeout: float,
-        max_prompt_tokens: int,
-        client: Optional[httpx.AsyncClient] = None,
+        model: str = "veo-3.1-fast-generate-001",
+        resolution: str = "720p",
+        person_generation: str = "",
+        negative_prompt_mode: str = "drop",
+        max_prompt_tokens: int = 1000,
+        project: str = "",
+        location: str = "us-central1",
+        client: Optional[Any] = None,
     ):
         if not api_key:
             raise PermanentVideoError(
-                "GEMINI_API_KEY is not set. Add it to .env or set USE_MOCK_VIDEO_API=true."
+                "GOOGLE_API_KEY is not set. Add it to .env or set USE_MOCK_VIDEO_API=true."
             )
 
         self._api_key = api_key
-        self.base_url = base_url.rstrip("/")
         self.model = model
         self.resolution = resolution
         self.person_generation = person_generation
         self.negative_prompt_mode = negative_prompt_mode
-        self.request_timeout = request_timeout
-        self.download_timeout = download_timeout
         self.max_prompt_tokens = max_prompt_tokens
+        self.project = project
+        self.location = location or "us-central1"
 
-        self._client = client
+        self._video_cache: dict[str, bytes] = {}
 
-    async def _get_client(self) -> httpx.AsyncClient:
-        if self._client is None:
-            self._client = httpx.AsyncClient(
-                timeout=httpx.Timeout(self.request_timeout, connect=5.0),
-                headers={AUTH_HEADER: self._api_key},
-            )
-        return self._client
+        if client is not None:
+            self._client = client
+        else:
+            client_kwargs = {
+                "vertexai": True,
+                "api_key": self._api_key,
+            }
+            if self.project:
+                client_kwargs["project"] = self.project
+            if self.location:
+                client_kwargs["location"] = self.location
+            self._client = genai.Client(**client_kwargs)
+
+    def _normalize_aspect_ratio(self, aspect: str) -> str:
+        raw = (aspect or "16:9").strip()
+        return {"16:9": "16:9", "9:16": "9:16", "1:1": "1:1"}.get(raw, "16:9")
 
     async def aclose(self) -> None:
-        if self._client is not None:
-            await self._client.aclose()
-            self._client = None
+        """Close client if needed."""
+        pass
 
-    # ------------------------------------------------------------------ #
-    # Internal HTTP helper with retry logic                                #
-    # ------------------------------------------------------------------ #
-
-    async def _request(
-        self,
-        method: str,
-        url: str,
-        json_data: dict | None = None,
-    ) -> dict:
-        """Make an HTTP request with retry/error handling.
-
-        POST (not idempotent): retry only on ConnectError, ConnectTimeout and 429.
-        GET  (idempotent): additionally retry on ReadTimeout, 5xx and network errors.
-        """
-        client = await self._get_client()
-        max_attempts = 4  # initial + 3 retries
-
-        for attempt in range(max_attempts):
-            try:
-                response = await client.request(
-                    method,
-                    url,
-                    json=json_data,
-                    headers={AUTH_HEADER: self._api_key},
-                )
-
-                # --- 401 / 403: authentication failure, never retry ---
-                if response.status_code in (401, 403):
-                    raise PermanentVideoError(
-                        "Authentication failed — check GEMINI_API_KEY, that billing/paid tier "
-                        "is enabled for Veo, and that the model is available in your region."
-                    )
-
-                # --- 429: rate limited / quota exhausted ---
-                if response.status_code == 429:
-                    try:
-                        err_body = response.json()
-                        err_obj = err_body.get("error", {})
-                        error_text = err_obj.get("message") or err_obj.get("status") or response.text
-                    except Exception:
-                        error_text = response.text
-                    if attempt == max_attempts - 1:
-                        raise TransientVideoError(
-                            f"Rate limited / Quota exhausted (429): {str(error_text)[:300]}"
-                        )
-                    retry_after = float(response.headers.get("Retry-After", 2 ** attempt))
-                    jitter = random.uniform(0, 0.5)
-                    await asyncio.sleep(retry_after + jitter)
-                    continue
-
-                # --- Other 4xx: permanent, no retry ---
-                if 400 <= response.status_code < 500:
-                    try:
-                        err_body = response.json()
-                        err_obj = err_body.get("error", {})
-                        error_text = err_obj.get("message") or err_obj.get("status") or response.text
-                    except Exception:
-                        error_text = response.text
-                    raise PermanentVideoError(
-                        f"Provider rejected request ({response.status_code}): {str(error_text)[:200]}"
-                    )
-
-                # --- 5xx: server error ---
-                if response.status_code >= 500:
-                    if method == "GET" and attempt < max_attempts - 1:
-                        await asyncio.sleep((2 ** attempt) + random.uniform(0, 0.5))
-                        continue
-                    # POST 5xx: ambiguous — job may exist. DO NOT retry.
-                    raise TransientVideoError(
-                        f"Provider server error ({response.status_code}): {response.text[:200]}"
-                    )
-
-                response.raise_for_status()
-
-                try:
-                    return response.json()
-                except ValueError as e:
-                    if method == "GET":
-                        raise TransientVideoError("Malformed JSON in response") from e
-                    else:
-                        raise PermanentVideoError("Malformed JSON in response") from e
-
-            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep((2 ** attempt) + random.uniform(0, 0.5))
-                    continue
-                raise TransientVideoError(f"Connection error: {e}") from e
-
-            except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as e:
-                # POST read-timeout: ambiguous — DO NOT retry
-                if method != "GET":
-                    raise TransientVideoError(f"Timeout error: {e}") from e
-                if attempt < max_attempts - 1:
-                    await asyncio.sleep((2 ** attempt) + random.uniform(0, 0.5))
-                    continue
-                raise TransientVideoError(f"Timeout error: {e}") from e
-
-            except httpx.RequestError as e:
-                if method == "GET" and attempt < max_attempts - 1:
-                    await asyncio.sleep((2 ** attempt) + random.uniform(0, 0.5))
-                    continue
-                raise TransientVideoError(f"Request error: {e}") from e
-
-        raise TransientVideoError("Max retries exceeded")
-
-    # ------------------------------------------------------------------ #
-    # submit_job                                                           #
-    # ------------------------------------------------------------------ #
+    async def _load_reference_image(self, ref_url: str) -> Optional[types.Image]:
+        """Fetch or load image bytes and wrap in types.Image for Veo image-to-video."""
+        if not ref_url or not isinstance(ref_url, str):
+            return None
+        if not ref_url.startswith(("http://", "https://")) and not os.path.exists(ref_url):
+            return None
+        try:
+            if ref_url.startswith("http://") or ref_url.startswith("https://"):
+                if "mock-image-url.com" in ref_url:
+                    logger.info(f"Skipping mock image URL: {ref_url}")
+                    return None
+                import httpx
+                async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as http_client:
+                    resp = await http_client.get(ref_url)
+                    resp.raise_for_status()
+                    image_bytes = resp.content
+                    raw_type = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
+                    mime_type = raw_type if raw_type.startswith("image/") else "image/jpeg"
+                    return types.Image(image_bytes=image_bytes, mime_type=mime_type)
+            elif os.path.exists(ref_url):
+                import mimetypes
+                mime_type, _ = mimetypes.guess_type(ref_url)
+                mime_type = mime_type or "image/jpeg"
+                with open(ref_url, "rb") as f:
+                    image_bytes = f.read()
+                return types.Image(image_bytes=image_bytes, mime_type=mime_type)
+            else:
+                logger.warning(f"Reference image path not accessible: {ref_url}")
+                return None
+        except Exception as exc:
+            logger.warning(f"Could not load reference image from {ref_url} ({exc}). Proceeding text-only.")
+            return None
 
     async def submit_job(
         self,
@@ -207,7 +117,7 @@ class VeoClient(VideoGenerationClient):
         negative_prompt: Optional[str] = None,
         reference_image_url: Optional[str] = None,
     ) -> str:
-        # --- Duration ---
+        # 1. Duration snapping using billed_seconds
         duration = billed_seconds(duration_seconds, self.resolution)
         if duration != round(duration_seconds):
             logger.info(f"planned {duration_seconds}s → Veo generates {duration}s")
@@ -216,272 +126,184 @@ class VeoClient(VideoGenerationClient):
                 f"shot is longer than Veo's 8 s maximum; it will be {duration} s"
             )
 
-        # --- Aspect ratio ---
+        # 2. Aspect ratio
         aspect = self._normalize_aspect_ratio(aspect_ratio)
 
-        # --- Negative prompt handling ---
-        if negative_prompt:
-            if self.negative_prompt_mode == "append":
-                append_text = f"\n\nAvoid: {negative_prompt}"
-                if len(append_text) > 300:
-                    append_text = append_text[:297] + "..."
-                candidate = prompt_text + append_text
-                estimated_tokens = math.ceil(len(candidate) / 4)
-                if estimated_tokens <= self.max_prompt_tokens:
-                    prompt_text = candidate
-                else:
-                    logger.debug(
-                        "negative_prompt would exceed token guard after append, dropping it"
-                    )
-            else:
-                logger.debug("negative_prompt mode is 'drop', ignoring negative_prompt")
-
-        if reference_image_url:
-            logger.debug(
-                "reference_image_url is not supported on Veo 3.1 Lite, ignoring"
-            )
-
-        # --- Token guard ---
+        # 3. Token guard
         estimated_tokens = math.ceil(len(prompt_text) / 4)
         if estimated_tokens > self.max_prompt_tokens:
             raise PermanentVideoError(
-                f"Prompt is about {estimated_tokens} tokens; Veo accepts at most 1,024. "
-                f"Shorten the prompt."
+                f"Prompt is about {estimated_tokens} tokens; Veo accepts at most 1,024. Shorten the prompt."
             )
 
-        # --- Build body ---
-        parameters: dict = {
-            "aspectRatio": aspect,
-            "durationSeconds": duration if DURATION_AS_INT else str(duration),
+        # 4. Build config
+        config_kwargs: dict[str, Any] = {
+            "aspect_ratio": aspect,
             "resolution": self.resolution,
+            "duration_seconds": duration,
+            "number_of_videos": 1,
         }
         if self.person_generation:
-            parameters["personGeneration"] = self.person_generation
+            config_kwargs["person_generation"] = self.person_generation
+        if negative_prompt and self.negative_prompt_mode == "append":
+            config_kwargs["negative_prompt"] = negative_prompt
 
-        body = {
-            "instances": [{"prompt": prompt_text}],
-            "parameters": parameters,
+        config = types.GenerateVideosConfig(**config_kwargs)
+
+        # 5. Load reference image for Image-to-Video if provided
+        veo_image = None
+        if reference_image_url:
+            veo_image = await self._load_reference_image(reference_image_url)
+            if veo_image:
+                logger.info(f"Veo Image-to-Video enabled: attached image from {reference_image_url}")
+
+        generate_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "prompt": prompt_text,
+            "config": config,
         }
+        if veo_image is not None:
+            generate_kwargs["image"] = veo_image
 
-        url = f"{self.base_url}/models/{self.model}:predictLongRunning"
-        logger.debug(f"Submitting Veo job to {url}")
+        try:
+            if hasattr(self._client, "aio") and hasattr(self._client.aio, "models"):
+                operation = await self._client.aio.models.generate_videos(**generate_kwargs)
+            else:
+                operation = await asyncio.to_thread(
+                    self._client.models.generate_videos,
+                    **generate_kwargs
+                )
+        except Exception as exc:
+            # Fallback: if job submission failed with image, retry once in text-only mode
+            if "image" in generate_kwargs:
+                logger.warning(
+                    f"Veo job submission with reference image failed ({exc}). "
+                    f"Falling back to text-only video generation..."
+                )
+                generate_kwargs.pop("image", None)
+                try:
+                    if hasattr(self._client, "aio") and hasattr(self._client.aio, "models"):
+                        operation = await self._client.aio.models.generate_videos(**generate_kwargs)
+                    else:
+                        operation = await asyncio.to_thread(
+                            self._client.models.generate_videos,
+                            **generate_kwargs
+                        )
+                except Exception as text_exc:
+                    exc = text_exc
+                else:
+                    operation_name = getattr(operation, "name", None)
+                    if operation_name:
+                        cost = estimate_clip_cost_usd(duration_seconds, self.resolution, model=self.model)
+                        logger.info(
+                            f"Submitted Veo job (text-fallback) {operation_name}: {duration}s at {self.resolution} "
+                            f"(est. cost ${cost:.2f})"
+                        )
+                        return operation_name
 
-        response_data = await self._request("POST", url, json_data=body)
+            exc_str = str(exc)
+            if any(k in exc_str for k in ("401", "403", "PERMISSION_DENIED", "Authentication failed")):
+                raise PermanentVideoError(f"Authentication/permission error: {exc}") from exc
+            if any(k in exc_str for k in ("429", "RESOURCE_EXHAUSTED", "Rate limited")):
+                raise TransientVideoError(f"Rate limited / Quota exhausted: {exc}") from exc
+            raise PermanentVideoError(f"Failed to submit Veo job: {exc}") from exc
 
-        operation_name = response_data.get("name")
+        operation_name = getattr(operation, "name", None)
         if not operation_name:
-            raise PermanentVideoError(
-                f"Missing 'name' in response: {str(response_data)[:200]}"
-            )
+            raise PermanentVideoError(f"Missing 'name' in response: {operation}")
 
-        cost = estimate_clip_cost_usd(duration_seconds, self.resolution)
+        cost = estimate_clip_cost_usd(duration_seconds, self.resolution, model=self.model)
         logger.info(
             f"Submitted Veo job {operation_name}: {duration}s at {self.resolution} "
             f"(est. cost ${cost:.2f})"
         )
-
         return operation_name
 
-    # ------------------------------------------------------------------ #
-    # check_status                                                         #
-    # ------------------------------------------------------------------ #
-
     async def check_status(self, external_job_id: str) -> dict:
-        # Validate external_job_id to prevent URL injection
-        if not external_job_id or external_job_id.startswith("/"):
-            raise PermanentVideoError(
-                f"Invalid operation id: must not be empty or start with '/'"
-            )
-        if ".." in external_job_id:
-            raise PermanentVideoError(
-                f"Invalid operation id: must not contain '..'"
-            )
-        if not _OPERATION_ID_RE.match(external_job_id):
-            raise PermanentVideoError(
-                f"Invalid operation id: contains disallowed characters"
-            )
+        if not external_job_id:
+            raise PermanentVideoError("Invalid operation id: must not be empty")
 
-        url = f"{self.base_url}/{external_job_id}"
+        op_arg = (
+            types.GenerateVideosOperation.model_construct(name=external_job_id)
+            if isinstance(external_job_id, str)
+            else external_job_id
+        )
+
         try:
-            response_data = await self._request("GET", url)
-        except PermanentVideoError as e:
-            if "404" in str(e):
-                raise PermanentVideoError(
-                    f"Unknown operation: {external_job_id}"
-                ) from e
+            if hasattr(self._client, "aio") and hasattr(self._client.aio, "operations"):
+                operation = await self._client.aio.operations.get(operation=op_arg)
+            else:
+                operation = await asyncio.to_thread(
+                    self._client.operations.get,
+                    op_arg,
+                )
+        except Exception as exc:
+            exc_str = str(exc)
+            if "404" in exc_str or "NOT_FOUND" in exc_str:
+                raise PermanentVideoError(f"Unknown operation: {external_job_id}") from exc
+            if any(k in exc_str for k in ("429", "503", "RESOURCE_EXHAUSTED", "timeout")):
+                raise TransientVideoError(f"Transient error polling status: {exc}") from exc
             raise
 
-        done = response_data.get("done", False)
-
+        done = getattr(operation, "done", False)
         if not done:
             return {"status": "PROCESSING", "video_url": None, "error": None}
 
-        # --- done is True ---
-
-        # Check for error
-        error_obj = response_data.get("error")
-        if error_obj and isinstance(error_obj, dict):
-            code = error_obj.get("code", "")
-            status = error_obj.get("status", "")
-            message = error_obj.get("message", "")
+        # Check for error in operation
+        error_obj = getattr(operation, "error", None)
+        if error_obj:
             return {
                 "status": "FAILED",
                 "video_url": None,
-                "error": f"{code} {status}: {message}"[:200],
+                "error": str(error_obj)[:200],
             }
 
-        # Check for generated video
-        response_inner = response_data.get("response", {})
-        gvr = response_inner.get("generateVideoResponse", response_inner)
-        samples = gvr.get("generatedSamples", [])
+        # Check for generated videos
+        res = getattr(operation, "response", None) or getattr(operation, "result", None)
+        videos = getattr(res, "generated_videos", None) if res else None
 
-        if samples and isinstance(samples, list):
-            for sample in samples:
-                video = sample.get("video", {}) if isinstance(sample, dict) else {}
-                uri = video.get("uri") if isinstance(video, dict) else None
-                if uri:
-                    return {"status": "COMPLETED", "video_url": uri, "error": None}
+        if videos and len(videos) > 0:
+            vid = videos[0]
+            video_obj = getattr(vid, "video", None)
+            v_bytes = getattr(video_obj, "video_bytes", None) if video_obj else None
+            if v_bytes:
+                self._video_cache[external_job_id] = v_bytes
+                return {"status": "COMPLETED", "video_url": external_job_id, "error": None}
 
-        # Done but no video — likely safety filter
-        filtered_reasons = gvr.get("raiMediaFilteredReasons", [])
-        filtered_count = gvr.get("raiMediaFilteredCount", 0)
+            uri = getattr(video_obj, "uri", None) if video_obj else None
+            if uri:
+                return {"status": "COMPLETED", "video_url": uri, "error": None}
 
-        if filtered_reasons or filtered_count:
-            reasons_str = ", ".join(str(r) for r in filtered_reasons) if filtered_reasons else "unknown"
-            return {
-                "status": "FAILED",
-                "video_url": None,
-                "error": f"Video was blocked by Google's safety filters: {reasons_str}",
-                "retryable": False,
-            }
-
+        # Check for safety filter block
         return {
             "status": "FAILED",
             "video_url": None,
-            "error": "Operation finished without a video",
+            "error": "Video generation completed without video (possibly blocked by safety filters)",
             "retryable": False,
         }
 
-    # ------------------------------------------------------------------ #
-    # download_video (authenticated, redirect-safe)                        #
-    # ------------------------------------------------------------------ #
-
     async def download_video(self, video_url: str) -> bytes:
-        """Download video from a Veo result URI with authenticated redirects.
+        if video_url in self._video_cache:
+            return self._video_cache.pop(video_url)
 
-        The API key header is only attached on hops whose host ends with
-        .googleapis.com; it is stripped for any other host (e.g. a signed
-        storage URL after redirect).
-        """
-        parsed = urlparse(video_url)
-        if parsed.scheme != "https":
-            raise PermanentVideoError(
-                f"Refusing non-https video URL: {parsed.scheme}"
-            )
-        if not parsed.hostname or not parsed.hostname.endswith(".googleapis.com"):
-            raise PermanentVideoError(
-                "Refusing to send API key to non-Google host: "
-                f"{parsed.hostname}"
-            )
-
-        current_url = video_url
-        client = await self._get_client()
-
-        for hop in range(MAX_DOWNLOAD_REDIRECTS + 1):
-            hop_parsed = urlparse(current_url)
-            if hop_parsed.scheme != "https":
-                raise PermanentVideoError(
-                    f"Redirect to non-https URL at hop {hop}: {hop_parsed.scheme}"
-                )
-
-            # Only attach API key on Google hosts
-            headers = {}
-            if hop_parsed.hostname and hop_parsed.hostname.endswith(".googleapis.com"):
-                headers[AUTH_HEADER] = self._api_key
-
-            try:
-                response = await client.send(
-                    client.build_request("GET", current_url, headers=headers),
-                    follow_redirects=False,
-                    stream=False,
-                )
-            except (httpx.ConnectError, httpx.ConnectTimeout) as e:
-                raise TransientVideoError(f"Download connection error: {e}") from e
-            except (httpx.ReadTimeout, httpx.WriteTimeout, httpx.PoolTimeout) as e:
-                raise TransientVideoError(f"Download timeout: {e}") from e
-            except httpx.RequestError as e:
-                raise TransientVideoError(f"Download request error: {e}") from e
-
-            # Handle redirects manually
-            if response.status_code in (301, 302, 303, 307, 308):
-                if hop >= MAX_DOWNLOAD_REDIRECTS:
-                    raise PermanentVideoError(
-                        f"Too many redirects ({MAX_DOWNLOAD_REDIRECTS}) downloading video"
-                    )
-                location = response.headers.get("Location", "")
-                if not location:
-                    raise PermanentVideoError("Redirect without Location header")
-                current_url = urljoin(current_url, location)
-                continue
-
-            # Error responses
-            if response.status_code in (401, 403, 404):
-                raise PermanentVideoError(
-                    f"Download failed ({response.status_code}): "
-                    f"{response.text[:200] if response.text else 'no body'}"
-                )
-            if response.status_code == 429 or response.status_code >= 500:
-                raise TransientVideoError(
-                    f"Download server error ({response.status_code}): "
-                    f"{response.text[:200] if response.text else 'no body'}"
-                )
-            if response.status_code != 200:
-                raise PermanentVideoError(
-                    f"Unexpected download status ({response.status_code})"
-                )
-
-            # Check content type — reject JSON/HTML/text
-            content_type = response.headers.get("content-type", "")
-            if any(t in content_type.lower() for t in ("json", "html", "text/")):
-                raise PermanentVideoError(
-                    f"Expected video content-type, got {content_type}: "
-                    f"{response.text[:200] if response.text else 'no body'}"
-                )
-
-            data = response.content
-            if not data:
-                raise PermanentVideoError("Download returned empty body")
-            if len(data) > MAX_DOWNLOAD_BYTES:
-                raise PermanentVideoError(
-                    f"Download exceeds {MAX_DOWNLOAD_BYTES} byte limit"
-                )
-
-            logger.info(
-                f"Downloaded {len(data)} bytes from {hop_parsed.hostname}"
-            )
-            return data
-
-        raise PermanentVideoError("Download redirect loop exhausted")
-
-    # ------------------------------------------------------------------ #
-    # Helpers                                                              #
-    # ------------------------------------------------------------------ #
-
-    @staticmethod
-    def _normalize_aspect_ratio(aspect_ratio: str) -> str:
-        """Map an arbitrary aspect ratio string to one Veo supports: 16:9 or 9:16."""
-        if aspect_ratio in ("16:9", "9:16"):
-            return aspect_ratio
-
-        # Try to parse w:h
-        try:
-            parts = aspect_ratio.split(":")
-            w, h = float(parts[0]), float(parts[1])
-            result = "16:9" if w >= h else "9:16"
-        except (ValueError, IndexError):
-            result = "16:9"
-
-        logger.warning(
-            f"Aspect ratio {aspect_ratio!r} not supported by Veo, mapping to {result!r}"
+        op_arg = (
+            types.GenerateVideosOperation.model_construct(name=video_url)
+            if isinstance(video_url, str)
+            else video_url
         )
-        return result
+
+        try:
+            if hasattr(self._client, "aio") and hasattr(self._client.aio, "operations"):
+                op = await self._client.aio.operations.get(operation=op_arg)
+            else:
+                op = await asyncio.to_thread(self._client.operations.get, op_arg)
+            res = getattr(op, "response", None) or getattr(op, "result", None)
+            videos = getattr(res, "generated_videos", None) if res else None
+            if videos and len(videos) > 0:
+                v_bytes = getattr(videos[0].video, "video_bytes", None)
+                if v_bytes:
+                    return v_bytes
+        except Exception as exc:
+            raise PermanentVideoError(f"Failed to retrieve video bytes for {video_url}: {exc}") from exc
+
+        raise PermanentVideoError(f"No video bytes found for operation: {video_url}")

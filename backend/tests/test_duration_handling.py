@@ -147,3 +147,40 @@ async def test_stitch_project_videos_trims_when_planned_duration_is_shorter(monk
     # Verify that trim was indeed invoked with 2.0s
     assert len(trim_calls) == 1
     assert trim_calls[0][2] == 2.0
+
+
+def test_validate_prompt_set_warns_on_sub_4s_veo_shot():
+    """Verify that validate_prompt_set flags a warning if a shot is under 4s for Veo."""
+    from app.schemas.specification import VideoSpecification, OutputRequirements
+    from app.schemas.scene_plan import MasterScenePlan, ScenePlan, ShotPlan, PlanStatus, NarrativeRole
+    from app.schemas.generated_prompt import PromptSet, GeneratedPrompt, PromptStatus
+    from app.validators.prompt_validation import validate_prompt_set
+
+    spec = VideoSpecification(
+        project_id="test_sub4",
+        output_requirements=OutputRequirements(duration_seconds=2.0)
+    )
+    shot = ShotPlan(
+        shot_id="sh_1", shot_number=1, scene_id="sc_1",
+        start_time=0.0, end_time=2.0, duration_seconds=2.0,
+        purpose="intro", subject="hero", action="runs",
+    )
+    scene = ScenePlan(
+        scene_id="sc_1", scene_number=1, title="intro", purpose="intro",
+        narrative_role=NarrativeRole.ACTION, start_time=0.0, end_time=2.0, duration_seconds=2.0,
+        shots=[shot]
+    )
+    plan = MasterScenePlan(scenes=[scene], total_duration=2.0, status=PlanStatus.READY)
+
+    prompt = GeneratedPrompt(
+        prompt_id="pr_1", scene_id="sc_1", shot_id="sh_1", sequence_number=1,
+        duration_seconds=2.0, prompt_text="Hero runs swiftly across the open landscape."
+    )
+    prompt_set = PromptSet(prompts=[prompt], total_duration=2.0)
+
+    validated = validate_prompt_set(spec, plan, prompt_set, target_tool="Veo")
+    # Status should still be READY (warning is non-blocking)
+    assert validated.status == PromptStatus.READY
+    # Should contain SHOT_DURATION_TOO_SHORT warning issue
+    issue_types = [iss.issue_type for iss in validated.validation_issues]
+    assert "SHOT_DURATION_TOO_SHORT" in issue_types

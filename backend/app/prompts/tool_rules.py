@@ -15,21 +15,21 @@ TOOL_RULES = {
 - VEO DURATION RULES (CRITICAL):
   * Google Veo 3.1 Lite generates clips strictly in fixed durations: 4, 6, or 8 seconds (at 720p; 8 seconds only at 1080p).
   * Arbitrary durations (1s, 2s, 3s, 5s, 7s) are NOT natively supported by Veo.
-  * You MUST plan every shot's duration using Veo's native building blocks: 4s, 6s, or 8s.
+  * Every shot MUST strictly have a duration of 4s, 6s, or 8s. Under NO circumstances output a shot < 4s.
   * Plan shot combinations so they sum to the scene and total video duration:
-    - 4s video: 1 shot of 4s
+    - 4s video: exactly 1 shot of 4s. If the script describes multiple fast actions or rapid scenes within 4s (e.g., two 2s beats), MERGE them into 1 continuous 4s prompt where Action 1 flows seamlessly into Action 2.
     - 6s video: 1 shot of 6s
     - 8s video: 1 shot of 8s (or 2 shots of 4s)
     - 10s video: 2 shots (e.g., Shot 1 = 6s, Shot 2 = 4s)
     - 12s video: 3 shots of 4s (or 2 shots of 6s)
     - 14s video: 3 shots (e.g., Shot 1 = 6s, Shot 2 = 4s, Shot 3 = 4s)
     - 16s video: 2 shots of 8s (or 4 shots of 4s)
-    - For any odd or non-standard total target, choose 4s/6s/8s blocks that match as closely as possible so downstream trimming can achieve the exact duration.
+    - For any non-standard target, build strictly from 4s/6s/8s blocks and merge short beats so no individual prompt is ever under 4 seconds.
 - VEO PROMPT FORMULA:
   Structure each prompt following Veo's optimal prompt formula:
   [Camera Movement & Framing] + [Subject Appearance & Continuous Action] + [Setting & Environment] + [Lighting & Atmosphere] + [Cinematic Style & Mood]
 - SINGLE CONTINUOUS MOTION BEAT:
-  Each 4s/6s/8s shot must describe ONE coherent, fluid action beat. Avoid cramming multiple disjointed actions into a single shot.
+  Each 4s/6s/8s shot must describe ONE coherent, fluid action beat. If multiple short actions occur within a 4s/6s/8s shot, describe them as one seamless, uninterrupted camera movement transition. Avoid disjointed hard cuts within a single shot prompt.
 - CINEMATIC CAMERA VOCABULARY:
   Use concrete camera movement terms Veo excels at: slow push-in, dolly tracking, sweeping pan, crane up/down, static locked-off shot, low-angle dynamic tracking. Avoid abstract buzzwords like "cinematic quality" or "hyper-realistic".
 - LIGHTING & ATMOSPHERE:

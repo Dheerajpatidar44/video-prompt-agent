@@ -21,7 +21,7 @@ def test_mock_client_factory(monkeypatch):
 def test_veo_client_factory(monkeypatch):
     monkeypatch.setattr(settings, "use_mock_video_api", False)
     monkeypatch.setattr(settings, "video_provider", "veo")
-    monkeypatch.setattr(settings, "gemini_api_key", SecretStr("testkey123"))
+    monkeypatch.setattr(settings, "google_api_key", SecretStr("testkey123"))
     client = get_video_client()
     assert isinstance(client, VeoClient)
     assert get_video_client() is client
@@ -36,8 +36,8 @@ def test_reset_video_client_clears(monkeypatch):
 def test_blank_key_in_real_mode_raises(monkeypatch):
     monkeypatch.setattr(settings, "use_mock_video_api", False)
     monkeypatch.setattr(settings, "video_provider", "veo")
-    monkeypatch.setattr(settings, "gemini_api_key", SecretStr(""))
-    with pytest.raises(PermanentVideoError, match="GEMINI_API_KEY is not set"):
+    monkeypatch.setattr(settings, "google_api_key", SecretStr(""))
+    with pytest.raises(PermanentVideoError, match="GOOGLE_API_KEY is not set"):
         get_video_client()
 
 def test_unknown_provider_raises(monkeypatch):

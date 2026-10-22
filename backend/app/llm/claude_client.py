@@ -157,7 +157,7 @@ class LLMService:
                 f"LLM OK | op={operation} thread={thread_id} "
                 f"queue_wait={queue_wait:.2f}s wall={elapsed:.2f}s model={self.model_name}"
             )
-
+ 
         # Extract tool use content block
         tool_use = next((block for block in response.content if block.type == "tool_use"), None)
         if tool_use is None:

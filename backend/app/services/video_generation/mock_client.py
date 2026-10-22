@@ -95,11 +95,21 @@ class MockVideoClient(VideoGenerationClient):
         self._in_flight += 1
         self._peak_in_flight = max(self._peak_in_flight, self._in_flight)
 
-        logger.info(
-            f"MockVideoClient.submit_job: id={external_id}, "
-            f"duration={duration_seconds}s, aspect={aspect_ratio}, "
-            f"submit_counter={self._submit_counter}"
-        )
+        ref_log = f", ref_image={reference_image_url}" if reference_image_url else ""
+        from app.services.video_generation.cost import billed_seconds
+        billed = billed_seconds(duration_seconds)
+        if billed != round(duration_seconds):
+            logger.info(
+                f"MockVideoClient.submit_job: id={external_id}, "
+                f"planned={duration_seconds}s (snapped to {billed}s for Veo), aspect={aspect_ratio}{ref_log}, "
+                f"submit_counter={self._submit_counter}"
+            )
+        else:
+            logger.info(
+                f"MockVideoClient.submit_job: id={external_id}, "
+                f"duration={duration_seconds}s, aspect={aspect_ratio}{ref_log}, "
+                f"submit_counter={self._submit_counter}"
+            )
         return external_id
 
     async def check_status(self, external_job_id: str) -> dict:

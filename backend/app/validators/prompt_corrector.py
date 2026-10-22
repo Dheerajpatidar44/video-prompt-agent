@@ -75,7 +75,7 @@ def _deduplicate_negative_constraints(text: str) -> str:
     sentences = [s.strip() for s in re.split(r"[.;,\n]", text) if s.strip() and len(s.strip()) > 5]
     if len(sentences) <= 1:
         return text
-
+ 
     keep = [sentences[0]]
     for s in sentences[1:]:
         is_dup = False

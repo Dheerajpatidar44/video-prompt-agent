@@ -47,7 +47,7 @@ export function useVideoAgent() {
     const { threadId, status, videoStatus, finalVideoUrl } = state;
     if (!threadId) return;
     if (["IDLE", "WAITING_FOR_USER", "ERROR"].includes(status)) return;
-    if (status === "COMPLETED" && (videoStatus === "COMPLETED" || videoStatus === "PARTIAL_FAILURE") && finalVideoUrl) return;
+    if ((status === "COMPLETED" || status === "GENERATING_VIDEOS") && (videoStatus === "COMPLETED" || videoStatus === "PARTIAL_FAILURE") && finalVideoUrl) return;
 
     const interval = setInterval(async () => {
       try {
@@ -55,7 +55,7 @@ export function useVideoAgent() {
           const qData = await ApiClient.getQuestions(threadId);
           if (qData.status === "WAITING_FOR_USER") {
             setPartial({ questions: qData.questions, status: "WAITING_FOR_USER" });
-          } else if (["PLANNING", "GENERATING", "REVIEWING", "COMPLETED"].includes(qData.status)) {
+          } else if (["PLANNING", "GENERATING", "REVIEWING", "GENERATING_VIDEOS", "COMPLETED"].includes(qData.status)) {
             setPartial({ status: qData.status as AgentStatus });
           }
         }
@@ -99,7 +99,7 @@ export function useVideoAgent() {
           }
         }
 
-        if (status === "COMPLETED" && (!finalVideoUrl || videoStatus !== "COMPLETED")) {
+        if ((status === "COMPLETED" || status === "GENERATING_VIDEOS") && (!finalVideoUrl || videoStatus !== "COMPLETED")) {
           try {
             const vData = await ApiClient.getVideoStatus(threadId);
             const isStitching = (vData.completed_shots > 0 && vData.completed_shots === vData.total_shots && !vData.final_video_url) || vData.status === "STITCHING";
@@ -166,9 +166,9 @@ export function useVideoAgent() {
       if (finalStatus === "WAITING_FOR_USER") {
         const qData = await ApiClient.getQuestions(res.thread_id);
         loadedQuestions = qData.questions || [];
-      } else if (finalStatus === "COMPLETED") {
-        const spData = await ApiClient.getScenePlan(res.thread_id);
-        const pData = await ApiClient.getPrompts(res.thread_id);
+      } else if (finalStatus === "COMPLETED" || finalStatus === "GENERATING_VIDEOS") {
+        const spData = await ApiClient.getScenePlan(res.thread_id).catch(() => ({ scene_plan: null }));
+        const pData = await ApiClient.getPrompts(res.thread_id).catch(() => ({ prompt_set: null, review_report: null }));
         scenePlan = spData.scene_plan;
         prompts = pData.prompt_set;
         setPartial({ reviewReport: pData.review_report || null });
@@ -183,6 +183,7 @@ export function useVideoAgent() {
         prompts,
         isSubmitting: false
       });
+      return res;
     } catch (err: any) {
       setPartial({ error: err.message || "Failed to analyze script", status: "ERROR", isSubmitting: false });
     }
@@ -207,9 +208,9 @@ export function useVideoAgent() {
       if (finalStatus === "WAITING_FOR_USER") {
         const qData = await ApiClient.getQuestions(state.threadId);
         questions = qData.questions || [];
-      } else if (finalStatus === "COMPLETED") {
-        const spData = await ApiClient.getScenePlan(state.threadId);
-        const pData = await ApiClient.getPrompts(state.threadId);
+      } else if (finalStatus === "COMPLETED" || finalStatus === "GENERATING_VIDEOS") {
+        const spData = await ApiClient.getScenePlan(state.threadId).catch(() => ({ scene_plan: null }));
+        const pData = await ApiClient.getPrompts(state.threadId).catch(() => ({ prompt_set: null, review_report: null }));
         scenePlan = spData.scene_plan;
         prompts = pData.prompt_set;
         setPartial({ reviewReport: pData.review_report || null });
@@ -223,6 +224,7 @@ export function useVideoAgent() {
         ...(prompts && { prompts }),
         isSubmitting: false
       });
+      return res;
     } catch (err: any) {
       setPartial({ error: err.message || "Failed to submit answers", status: "ERROR", isSubmitting: false });
     }

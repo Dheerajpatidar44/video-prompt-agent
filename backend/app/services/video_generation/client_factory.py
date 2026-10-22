@@ -39,16 +39,16 @@ def get_video_client() -> VideoGenerationClient:
         return _client_instance
     elif settings.video_provider == "veo":
         from app.services.video_generation.veo_client import VeoClient
+        api_key = settings.google_api_key.get_secret_value()
         _client_instance = VeoClient(
-            api_key=settings.gemini_api_key.get_secret_value(),
-            base_url=settings.veo_base_url,
+            api_key=api_key,
             model=settings.veo_model,
             resolution=settings.veo_resolution,
             person_generation=settings.veo_person_generation,
             negative_prompt_mode=settings.veo_negative_prompt_mode,
-            request_timeout=settings.veo_request_timeout_seconds,
-            download_timeout=settings.veo_download_timeout_seconds,
             max_prompt_tokens=settings.veo_max_prompt_tokens,
+            project=settings.google_cloud_project,
+            location=settings.google_cloud_location,
         )
         logger.info("Video client initialized: VeoClient (singleton)")
         return _client_instance

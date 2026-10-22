@@ -196,7 +196,7 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
     )
 
     # 3. Run deterministic Python validation
-    prompt_set = validate_prompt_set(spec, master_plan, prompt_set)
+    prompt_set = validate_prompt_set(spec, master_plan, prompt_set, target_tool=tool)
 
     final_status = AgentStatus.REVIEWING
 

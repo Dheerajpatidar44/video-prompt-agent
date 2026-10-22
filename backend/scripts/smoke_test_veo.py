@@ -25,9 +25,9 @@ from app.services.video_generation.veo_client import VeoClient
 
 
 async def run_smoke_test(duration: float, aspect: str, output_path: str) -> None:
-    api_key = settings.gemini_api_key.get_secret_value()
+    api_key = settings.google_api_key.get_secret_value() or settings.gemini_api_key.get_secret_value()
     if not api_key:
-        print("ERROR: GEMINI_API_KEY is not set in .env. Please set it before running this test.")
+        print("ERROR: GOOGLE_API_KEY (or GEMINI_API_KEY) is not set in .env. Please set it before running this test.")
         sys.exit(1)
 
     resolution = settings.veo_resolution
@@ -41,6 +41,8 @@ async def run_smoke_test(duration: float, aspect: str, output_path: str) -> None
         request_timeout=settings.veo_request_timeout_seconds,
         download_timeout=settings.veo_download_timeout_seconds,
         max_prompt_tokens=settings.veo_max_prompt_tokens,
+        project=settings.google_cloud_project,
+        location=settings.google_cloud_location,
     )
 
     prompt = "a steaming coffee cup on a wooden table, soft morning light"

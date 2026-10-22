@@ -3,10 +3,18 @@ import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Maximize, Repeat,
 
 import type { GeneratedPrompt } from "@/lib/types";
 
+function formatTime(seconds: number): string {
+  if (isNaN(seconds) || seconds <= 0) return "00:00:00";
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60);
+  const cs = Math.floor((seconds % 1) * 100);
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}:${cs.toString().padStart(2, '0')}`;
+}
+
 export function FinalVideoView({ 
   videoUrl, 
   prompts = [], 
-  totalDuration = 12 
+  totalDuration 
 }: { 
   videoUrl: string; 
   prompts?: GeneratedPrompt[]; 
@@ -18,13 +26,33 @@ export function FinalVideoView({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState("00:00:00");
-  const [durationStr, setDurationStr] = useState("00:00:12");
+
+  const promptsDuration = prompts.reduce((sum, p) => sum + (p.duration_seconds || 0), 0);
+  const initialDuration = totalDuration && totalDuration > 0 ? totalDuration : (promptsDuration > 0 ? promptsDuration : 0);
+
+  const [duration, setDuration] = useState<number>(initialDuration);
+  const [durationStr, setDurationStr] = useState<string>(formatTime(initialDuration));
   const animationRef = useRef<number>(0);
   const [isDragging, setIsDragging] = useState(false);
   const timelineRef = useRef<HTMLDivElement>(null);
-  const [selectedPart, setSelectedPart] = useState("part3");
+  const [selectedPart, setSelectedPart] = useState("part1");
   const [isFixPanelOpen, setIsFixPanelOpen] = useState(false);
   const [videoAspect, setVideoAspect] = useState<number | null>(null);
+
+  // Exact duration from video metadata or prompts; completely dynamic
+  const effectiveDuration = duration > 0 ? duration : (promptsDuration > 0 ? promptsDuration : 1);
+  const totalSeconds = Math.max(1, Math.round(effectiveDuration));
+  const frameCount = Math.max(4, Math.min(10, totalSeconds * 2));
+
+  // Smart tick intervals so ticks never crowd together regardless of video duration
+  const tickStep = totalSeconds > 30 ? 5 : totalSeconds > 15 ? 2 : 1;
+  const tickIndices: number[] = [];
+  for (let s = 0; s < totalSeconds; s += tickStep) {
+    tickIndices.push(s);
+  }
+  if (!tickIndices.includes(totalSeconds)) {
+    tickIndices.push(totalSeconds);
+  }
 
   const parts = [];
   let currentStart = 0;
@@ -37,6 +65,14 @@ export function FinalVideoView({
       end: currentStart + p.duration_seconds
     });
     currentStart += p.duration_seconds;
+  }
+  if (parts.length === 0) {
+    parts.push({
+      id: "part1",
+      label: `Full Video (0.0s - ${effectiveDuration.toFixed(1)}s)`,
+      start: 0,
+      end: effectiveDuration
+    });
   }
   
   const togglePlay = () => {
@@ -125,18 +161,23 @@ export function FinalVideoView({
     }
   };
 
-  const formatTime = (seconds: number) => {
-    if (isNaN(seconds)) return "00:00:00";
-    const m = Math.floor(seconds / 60);
-    const s = Math.floor(seconds % 60);
-    const cs = Math.floor((seconds % 1) * 100);
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}:${cs.toString().padStart(2, '0')}`;
-  };
+  useEffect(() => {
+    if (videoRef.current && videoRef.current.duration && !isNaN(videoRef.current.duration) && videoRef.current.duration > 0) {
+      setDuration(videoRef.current.duration);
+      setDurationStr(formatTime(videoRef.current.duration));
+    } else if (totalDuration && totalDuration > 0) {
+      setDuration(totalDuration);
+      setDurationStr(formatTime(totalDuration));
+    } else if (promptsDuration > 0) {
+      setDuration(promptsDuration);
+      setDurationStr(formatTime(promptsDuration));
+    }
+  }, [videoUrl, totalDuration, promptsDuration]);
 
   const updateTimeLoop = () => {
     if (videoRef.current) {
       const current = videoRef.current.currentTime;
-      const dur = videoRef.current.duration || totalDuration;
+      const dur = videoRef.current.duration || effectiveDuration;
       setProgress((current / dur) * 100);
       setCurrentTime(formatTime(current));
     }
@@ -157,7 +198,7 @@ export function FinalVideoView({
   const handleTimeUpdate = () => {
     if (!isPlaying && !isDragging && videoRef.current) {
       const current = videoRef.current.currentTime;
-      const dur = videoRef.current.duration || totalDuration;
+      const dur = videoRef.current.duration || effectiveDuration;
       setProgress((current / dur) * 100);
       setCurrentTime(formatTime(current));
     }
@@ -165,7 +206,11 @@ export function FinalVideoView({
 
   const handleLoadedMetadata = () => {
     if (videoRef.current) {
-      setDurationStr(formatTime(videoRef.current.duration));
+      const d = videoRef.current.duration;
+      if (d && !isNaN(d) && isFinite(d) && d > 0) {
+        setDuration(d);
+        setDurationStr(formatTime(d));
+      }
       const w = videoRef.current.videoWidth;
       const h = videoRef.current.videoHeight;
       if (w && h) {
@@ -184,7 +229,8 @@ export function FinalVideoView({
       if (clickX > maxWidth) clickX = maxWidth;
       
       const percentage = clickX / maxWidth;
-      const newTime = percentage * (videoRef.current.duration || totalDuration);
+      const dur = videoRef.current.duration || effectiveDuration;
+      const newTime = percentage * dur;
       
       videoRef.current.currentTime = newTime;
       setProgress(percentage * 100);
@@ -238,6 +284,8 @@ export function FinalVideoView({
             src={videoUrl}
             onTimeUpdate={handleTimeUpdate}
             onLoadedMetadata={handleLoadedMetadata}
+            onDurationChange={handleLoadedMetadata}
+            onCanPlay={handleLoadedMetadata}
             onEnded={() => { if(!isLooping) setIsPlaying(false) }}
             playsInline
           />
@@ -293,21 +341,47 @@ export function FinalVideoView({
           >
             
             {/* Ticks and time labels */}
-            <div className="absolute top-0 left-0 right-0 h-8 flex justify-between px-2">
-               {Array.from({length: 11}).map((_, i) => (
-                 <div key={i} className="relative h-full border-l border-gray-700/50 flex-1 last:border-r">
-                   <span className="text-[11px] text-gray-500 absolute top-2 -translate-x-1/2" style={{ fontFamily: "'Poppins', sans-serif" }}>
-                     {i.toString().padStart(2, '0')}
-                   </span>
-                 </div>
-               ))}
+            <div className="absolute top-0 left-2 right-2 h-8 relative">
+              {tickIndices.map((second) => {
+                const pct = (second / totalSeconds) * 100;
+                return (
+                  <div 
+                    key={second} 
+                    className="absolute top-0 bottom-0 pointer-events-none"
+                    style={{ left: `${pct}%` }}
+                  >
+                    <div className="w-px h-2.5 bg-gray-600/70 -translate-x-1/2" />
+                    <span 
+                      className={`text-[11px] text-gray-400 absolute top-3 select-none font-medium ${
+                        second === 0 ? "left-0" : second === totalSeconds ? "right-0" : "left-1/2 -translate-x-1/2"
+                      }`}
+                      style={{ fontFamily: "'Poppins', sans-serif" }}
+                    >
+                      {second.toString().padStart(2, '0')}
+                    </span>
+                  </div>
+                );
+              })}
+
+              {/* Intermediate half-second ticks for shorter videos */}
+              {totalSeconds <= 8 && Array.from({ length: totalSeconds }).map((_, i) => (
+                <div 
+                  key={`half-${i}`} 
+                  className="absolute top-0 h-1.5 w-px bg-gray-800 pointer-events-none -translate-x-1/2"
+                  style={{ left: `${((i + 0.5) / totalSeconds) * 100}%` }}
+                />
+              ))}
             </div>
 
             {/* Video Frames Track */}
             <div className="absolute top-10 left-2 right-2 h-[60px] bg-white/5 rounded-md border border-white p-[1px] flex overflow-hidden shadow-[0_0_15px_rgba(255,255,255,0.1)]">
-               {Array.from({ length: 10 }).map((_, i) => (
+               {Array.from({ length: frameCount }).map((_, i) => (
                  <div key={i} className="flex-1 h-full bg-[#111] border-r border-black/50 last:border-r-0 relative pointer-events-none">
-                    <video src={`${videoUrl}#t=${((i + 0.5) * (totalDuration || 12)) / 10}`} className="w-full h-full object-cover opacity-90" preload="metadata" />
+                    <video 
+                      src={`${videoUrl}#t=${((i + 0.5) * effectiveDuration) / frameCount}`} 
+                      className="w-full h-full object-cover opacity-90" 
+                      preload="metadata" 
+                    />
                  </div>
                ))}
             </div>
@@ -371,16 +445,9 @@ export function FinalVideoView({
                 onChange={(e) => setSelectedPart(e.target.value)}
                 className="w-full bg-gray-900 border border-gray-700 rounded-lg p-2 text-sm text-gray-200 appearance-none focus:outline-none focus:border-blue-500 cursor-pointer"
               >
-                {parts.length > 0 ? parts.map(p => (
+                {parts.map(p => (
                   <option key={p.id} value={p.id}>{p.label}</option>
-                )) : (
-                  <>
-                    <option value="part1">Part 1 (0.0s - 3.0s)</option>
-                    <option value="part2">Part 2 (3.0s - 7.0s)</option>
-                    <option value="part3">Part 3 (7.0s - 10.0s)</option>
-                    <option value="part4">Part 4 (10.0s - 12.0s)</option>
-                  </>
-                )}
+                ))}
                 <option value="custom">Custom Time Range...</option>
               </select>
               <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400 text-xs">
