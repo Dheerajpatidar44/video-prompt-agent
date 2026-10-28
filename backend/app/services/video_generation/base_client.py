@@ -1,9 +1,8 @@
 """Abstract base class for video generation clients.
 
-All model-specific clients (Veo, Runway, Kling, etc.) must implement this
-interface.  The system is designed to be model-agnostic: orchestration,
-polling, storage, and stitching work identically regardless of which
-concrete client is plugged in.
+All model-specific clients (Google Veo, Mock, etc.) must implement this
+interface. The system is designed to orchestrate video generation,
+polling, storage, and stitching with clean provider decoupling.
 """
 from abc import ABC, abstractmethod
 from typing import Optional

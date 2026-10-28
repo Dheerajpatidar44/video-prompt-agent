@@ -16,3 +16,7 @@ aiosqlite
 rapidfuzz
 ffmpeg-python
 google-genai
+rapidocr-onnxruntime
+opencv-python-headless
+colorthief
+imagehash

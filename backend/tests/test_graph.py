@@ -115,3 +115,121 @@ async def test_graph_compiles_and_executes(mock_analyze, mock_build, mock_genera
     
     # Wait, the final status is now GENERATING_VIDEOS because we returned a valid prompt_set
     assert final_state["status"] == AgentStatus.GENERATING_VIDEOS
+
+
+def test_update_state_processes_answers():
+    from app.schemas.agent import Answer, AnswerType, GapCategory
+    q1 = Question(
+        id="q1",
+        gap_ids=["g1"],
+        question="Age?",
+        category="CHARACTER",
+        priority=Importance.CRITICAL,
+        status=QuestionStatus.PENDING,
+    )
+    state: AgentState = {
+        "questions": [q1],
+        "new_answers": [Answer(question_id="q1", answer="30 years old", answer_type=AnswerType.TEXT)],
+        "answers": [],
+        "current_round": 0,
+        "status": AgentStatus.WAITING_FOR_USER,
+    }
+    new_state = update_state(state)
+    assert new_state["questions"][0].status == QuestionStatus.ANSWERED
+    assert new_state["questions"][0].answer == "30 years old"
+    assert len(new_state["answers"]) == 1
+    assert new_state["answers"][0].answer == "30 years old"
+    assert new_state["current_round"] == 1
+    assert new_state["status"] == "ANALYZING"
+
+
+@patch('app.graph.nodes.re_analyze.llm_service')
+@pytest.mark.asyncio
+async def test_re_analyze_updates_gaps_and_asks_questions(mock_llm):
+    from app.schemas.agent import GapCategory, ReAnalysisResult, Answer, AnswerType
+    from app.graph.nodes.re_analyze import re_analyze
+
+    g1 = Gap(
+        id="g1", category=GapCategory.CHARACTER, importance=Importance.CRITICAL,
+        description="Age missing", evidence="No age", status=GapStatus.OPEN
+    )
+    g2 = Gap(
+        id="g2", category=GapCategory.LOCATION, importance=Importance.IMPORTANT,
+        description="Lighting missing", evidence="No lighting", status=GapStatus.OPEN
+    )
+    g1_resolved = Gap(
+        id="g1", category=GapCategory.CHARACTER, importance=Importance.CRITICAL,
+        description="Age missing", evidence="No age", status=GapStatus.RESOLVED
+    )
+    new_question = Question(
+        id="q2", gap_ids=["g2"], question="What kind of lighting?",
+        category="LOCATION", priority=Importance.IMPORTANT, status=QuestionStatus.PENDING
+    )
+
+    state: AgentState = {
+        "gaps": [g1, g2],
+        "questions": [],
+        "answers": [Answer(question_id="q1", answer="30 years old", answer_type=AnswerType.TEXT)],
+        "current_round": 0,
+        "max_rounds": 2,
+        "original_script": "A character walks in a room.",
+        "analysis": {},
+    }
+
+    mock_llm.generate_structured = AsyncMock(return_value=ReAnalysisResult(
+        gaps=[g1_resolved, g2],
+        questions=[new_question],
+    ))
+
+    new_state = await re_analyze(state)
+    assert len(new_state["gaps"]) == 2
+    assert next(g for g in new_state["gaps"] if g.id == "g1").status == GapStatus.RESOLVED
+    assert new_state["status"] == "WAITING_FOR_USER"
+    assert len(new_state["questions"]) == 1
+    assert new_state["questions"][0].id == "q2"
+
+
+def test_routing_helpers():
+    from app.graph.routing import has_unresolved_priority_gaps, within_round_limit
+    from app.schemas.agent import GapCategory
+
+    gaps = [
+        Gap(id="g1", category=GapCategory.CHARACTER, importance=Importance.CRITICAL,
+            description="Age missing", evidence="No age", status=GapStatus.OPEN)
+    ]
+    assert has_unresolved_priority_gaps(gaps) is True
+    gaps[0].status = GapStatus.RESOLVED
+    assert has_unresolved_priority_gaps(gaps) is False
+
+    assert within_round_limit(0, 2) is True
+    assert within_round_limit(1, 2) is True
+    assert within_round_limit(2, 2) is False
+
+
+@patch('app.graph.nodes.build_video_spec.llm_service')
+@pytest.mark.asyncio
+async def test_build_video_spec_ready_and_blocked(mock_llm):
+    from app.graph.nodes.build_video_spec import build_video_spec
+    from app.schemas.specification import VideoSpecification, SpecStatus
+    from app.schemas.agent import GapCategory
+
+    # Case 1: Ready
+    mock_spec = VideoSpecification(project_id="proj-1", unresolved_items=[])
+    mock_llm.generate_structured = AsyncMock(return_value=mock_spec)
+
+    state: AgentState = {"project_id": "proj-1", "original_script": "A woman walks in.", "gaps": []}
+    new_state = await build_video_spec(state)
+    assert new_state["status"] == AgentStatus.GENERATING
+    assert new_state["video_specification"].status == SpecStatus.READY
+
+    # Case 2: Blocked by critical open gap
+    state_blocked: AgentState = {
+        "project_id": "proj-1",
+        "gaps": [
+            Gap(id="g1", category=GapCategory.CHARACTER, importance=Importance.CRITICAL,
+                description="Age missing", evidence="missing", status=GapStatus.OPEN)
+        ],
+    }
+    new_state_blocked = await build_video_spec(state_blocked)
+    assert new_state_blocked["video_specification"].status == SpecStatus.BLOCKED
+

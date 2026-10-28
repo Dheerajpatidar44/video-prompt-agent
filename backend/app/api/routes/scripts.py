@@ -33,10 +33,6 @@ class SubmitAnswersRequest(BaseModel):
     answers: list[Answer]
 
 
-# ----------------------------------------------------------------------
-# Shared helpers — used by every state-reading endpoint below
-# ----------------------------------------------------------------------
-
 async def _get_state_values(thread_id: str) -> dict:
     import aiosqlite
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
@@ -91,14 +87,18 @@ async def _ingest_file_async(tmp_path: str, source_type: str, filename: str, con
     try:
         return await ScriptService.ingest_file(tmp_path, source_type, filename)
     finally:
-        os.remove(tmp_path)
+        import gc
+        gc.collect()
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception as exc:
+            logger.warning(f"Could not immediately delete temporary file {tmp_path}: {exc}")
 
 
-# ----------------------------------------------------------------------
-# Routes
-# ----------------------------------------------------------------------
 
-@router.post("/analyze", response_model=AnalyzeResponse)
+
+@router.post("  ze", response_model=AnalyzeResponse)
 async def analyze_script_endpoint(
     text: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
@@ -141,16 +141,26 @@ async def analyze_script_endpoint(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error during ingestion: {str(e)}")
 
-    # Upload reference images to Cloudinary
+    # Upload reference images to Cloudinary and execute deterministic CV/OCR pre-analysis
     from app.services.cloudinary_service import upload_image
+    from app.services.image_analysis_service import ImageAnalysisService
     
     ref_urls = {"character": [], "product": [], "brand": []}
+    image_profiles = []
     
-    # helper for async upload
+    # helper for async upload and local deterministic image analysis
     async def process_images(files, category):
         for img in files:
             if img and img.filename:
                 content = await img.read()
+                try:
+                    profile = await run_in_threadpool(
+                        ImageAnalysisService.analyze_image_bytes, content, img.filename, category
+                    )
+                    image_profiles.append(profile.model_dump())
+                except Exception as exc:
+                    logger.warning(f"Deterministic image analysis failed for {img.filename}: {exc}")
+
                 url = await run_in_threadpool(upload_image, content, img.filename, category)
                 ref_urls[category].append(url)
                 
@@ -165,6 +175,7 @@ async def analyze_script_endpoint(
         "script_source": script_doc.source_type,
         "reference_images": ref_urls,
         "selected_tool": tool,
+        "image_profiles": image_profiles,
     }
     config = {"configurable": {"thread_id": script_doc.document_id}}
 
@@ -190,7 +201,7 @@ async def analyze_script_endpoint(
     except Exception as e:
         logger.exception("Graph execution failed")
         raise HTTPException(status_code=500, detail=f"Graph execution failed: {str(e)}")
-
+ 
     try:
         from app.db.database import get_db
         conn = get_db()

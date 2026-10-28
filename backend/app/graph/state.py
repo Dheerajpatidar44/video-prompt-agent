@@ -12,6 +12,8 @@ class AgentState(TypedDict):
     script_source: Optional[str]
     reference_images: Dict[str, List[str]]
     selected_tool: Optional[str]
+    image_profiles: Optional[List[Dict[str, Any]]]
+    script_precheck: Optional[Dict[str, Any]]
     
     # Processed script representation
     analysis: Dict[str, Any]

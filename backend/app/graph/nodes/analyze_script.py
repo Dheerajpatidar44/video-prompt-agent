@@ -30,10 +30,34 @@ async def analyze_script(state: AgentState) -> AgentState:
     all_image_urls = []
     for cat_urls in ref_images_dict.values():
         all_image_urls.extend(cat_urls)
-        
+
+    # 1. Deterministic Script Heuristics (Timing, Scenes, Dialogue, Veo slotting)
+    from app.services.script_heuristic_service import ScriptHeuristicService
+    script_precheck = ScriptHeuristicService.scan_script(script_text)
+
+    # 2. Compile Deterministic Asset Profiles (ColorThief, OpenCV, RapidOCR)
+    image_profiles_raw = state.get("image_profiles", [])
+    asset_bullets = []
+    if image_profiles_raw:
+        for p in image_profiles_raw:
+            bullet = p.get("visual_summary_bullet")
+            if bullet:
+                asset_bullets.append(bullet)
+
+    if not asset_bullets:
+        asset_summary_text = "No reference assets provided or analyzed."
+    else:
+        asset_summary_text = "\n".join(asset_bullets)
+
+    deterministic_facts_summary = (
+        f"[SCRIPT METRICS & TIMING AUDIT]\n{script_precheck.deterministic_summary_text}\n\n"
+        f"[REFERENCE ASSET FINGERPRINTS (OPENCV, COLORTHIEF, RAPIDOCR)]\n{asset_summary_text}"
+    )
+
     prompt = INITIAL_ANALYSIS_PROMPT.format(
+        deterministic_facts=deterministic_facts_summary,
         script=script_text,
-        reference_image_descriptions="No reference images provided." if not all_image_urls else f"Provided {len(all_image_urls)} reference images. Please analyze them.",
+        reference_image_descriptions="No reference images provided." if not all_image_urls else f"Provided {len(all_image_urls)} reference image(s). Please verify entity assignments against deterministic asset profiles.",
         previous_qa="None (This is the initial analysis)"
     )
 
@@ -131,6 +155,7 @@ async def analyze_script(state: AgentState) -> AgentState:
         "analysis": analysis_dict,
         "gaps": unique_gaps,
         "questions": processed_questions,
+        "script_precheck": script_precheck.model_dump(),
         "status": status,
         "error": None,
     }

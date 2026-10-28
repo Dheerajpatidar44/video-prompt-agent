@@ -1,7 +1,7 @@
 VIDEO_SPECIFICATION_PROMPT = """
 You are a technical video producer building a SINGLE SOURCE OF TRUTH Video Specification from a video script, its analysis, and user clarifications.
 
-Your job is to construct a production-ready, highly structured JSON specification that downstream systems will use to generate AI video prompts (e.g. for Veo, Runway, Kling).
+Your job is to construct a production-ready, highly structured JSON specification that downstream systems will use to generate AI video prompts for Google Veo.
 
 =========================================
 INPUT DATA

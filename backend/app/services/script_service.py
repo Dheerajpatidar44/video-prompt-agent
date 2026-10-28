@@ -17,7 +17,7 @@ class ScriptService:
         if not os.path.exists(file_path):
             raise ValueError("File does not exist.")
             
-        if source_type.lower() == "pdf":
+        if source_type.lower() == "pdf": 
             original_text = await PDFParser.parse(file_path)
         elif source_type.lower() in ["txt", "text"]:
             original_text = TextParser.parse(file_path)
@@ -25,7 +25,7 @@ class ScriptService:
             raise ValueError(f"Unsupported source type: {source_type}")
             
         return ScriptService.ingest_text(original_text, source_type, filename)
-        
+         
     @staticmethod
     def ingest_text(original_text: str, source_type: str = "text", filename: str = "raw_text") -> ScriptDocument:
         if not original_text.strip():

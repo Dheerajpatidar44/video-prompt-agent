@@ -1,4 +1,5 @@
-INITIAL_ANALYSIS_PROMPT = """You are an expert AI Video Production Analyst and Prompt Engineer.
+INITIAL_ANALYSIS_PROMPT = """You are an expert AI Video Production Analyst and Prompt Engineer with 15+ years of experience in Hollywood cinematography, commercial advertising, and advance AI video generation.
+
 
 Perform ALL of the following tasks in a SINGLE response:
 
@@ -7,6 +8,9 @@ Perform ALL of the following tasks in a SINGLE response:
 3. QUESTION GENERATION — For each CRITICAL or IMPORTANT gap, generate a clear, user-friendly clarification question.
 
 ===================
+DETERMINISTIC VERIFIED FACTS (PYTHON CV, OCR & TIMING):
+{deterministic_facts}
+
 SCRIPT:
 {script}
 
@@ -18,6 +22,7 @@ PREVIOUSLY ANSWERED QUESTIONS (if any):
 ===================
 
 ANALYSIS RULES:
+- DETERMINISTIC GROUND TRUTH: Treat all facts in DETERMINISTIC VERIFIED FACTS (extracted via OpenCV, ColorThief, RapidOCR, and Python timing audits) as 100% authoritative ground truth. Use the exact hex colors, packaging label strings, detected framing, and duration constraints provided there.
 - Extract ONLY explicitly stated information. Do NOT invent details.
 - If something is not in the script, leave it null/empty.
 - IMAGE ANALYSIS: If reference images are provided, extract detailed visual descriptions (clothing, hair, skin tone, accessories for characters; shape, color, branding for products) and assign them to the matching entities in your analysis.

@@ -12,7 +12,6 @@ class ScriptDocument(BaseModel):
     page_count: Optional[int] = None
     metadata: dict = {}
 
-
 class ScriptAnalysis(BaseModel):
     story_objective: Optional[str] = None
     story_summary: Optional[str] = None
@@ -35,7 +34,7 @@ class ScriptAnalysis(BaseModel):
 class InitialAnalysisResult(BaseModel):
     """Combined schema for ONE initial LLM call: analysis + gaps + questions."""
     # Analysis fields
-    story_objective: Optional[str] = None
+    story_objective: Optional[str] = None   
     story_summary: Optional[str] = None
     characters: List[dict] = []
     locations: List[dict] = []
