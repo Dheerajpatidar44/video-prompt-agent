@@ -5,15 +5,15 @@ import { motion } from "framer-motion";
 import { CheckCircle2, Film, Wand2, Clock, Copy, Check, ShieldCheck } from "lucide-react";
 import type { MasterScenePlan, PromptSet } from "@/lib/types";
 
-interface ResultsViewProps {
+export interface ResultsViewProps {
   scenePlan: MasterScenePlan | null;
   prompts: PromptSet | null;
   reviewReport?: any | null;
-  onReset: () => void;
-  onGenerateVideo: () => void;
+  onReset?: () => void;
+  onGenerateVideo?: () => void;
 }
 
-function CopyButton({ text }: { text: string }) {
+export function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = React.useState(false);
   const handleCopy = () => {
     navigator.clipboard.writeText(text);
@@ -162,22 +162,28 @@ export function ResultsView({ scenePlan, prompts, reviewReport, onReset, onGener
           </div>
         </section>
       )}
- 
+
       {/* Actions */}
-      <div className="flex justify-center gap-4 pt-4">
-        <button
-          onClick={onReset}
-          className="px-8 py-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] text-[14px] font-medium cursor-pointer"
-        >
-          Start New Project
-        </button>
-        <button
-          onClick={onGenerateVideo}
-          className="px-8 py-3 rounded-lg border-none bg-gradient-to-br from-blue-500 to-violet-500 text-white text-[14px] font-medium cursor-pointer shadow-[0_4px_12px_rgba(59,130,246,0.3)]"
-        >
-          Generate Final Video
-        </button>
-      </div>
+      {(onReset || onGenerateVideo) && (
+        <div className="flex justify-center gap-4 pt-4">
+          {onReset && (
+            <button
+              onClick={onReset}
+              className="px-8 py-3 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] text-[14px] font-medium cursor-pointer"
+            >
+              Start New Project
+            </button>
+          )}
+          {onGenerateVideo && (
+            <button
+              onClick={onGenerateVideo}
+              className="px-8 py-3 rounded-lg border-none bg-gradient-to-br from-blue-500 to-violet-500 text-white text-[14px] font-medium cursor-pointer shadow-[0_4px_12px_rgba(59,130,246,0.3)]"
+            >
+              Generate Final Video
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }

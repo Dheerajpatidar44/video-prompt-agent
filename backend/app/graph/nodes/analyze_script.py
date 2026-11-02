@@ -50,11 +50,14 @@ async def analyze_script(state: AgentState) -> AgentState:
         asset_summary_text = "\n".join(asset_bullets)
 
     deterministic_facts_summary = (
-        f"[SCRIPT METRICS & TIMING AUDIT]\n{script_precheck.deterministic_summary_text}\n\n"
-        f"[REFERENCE ASSET FINGERPRINTS (OPENCV, COLORTHIEF, RAPIDOCR)]\n{asset_summary_text}"
+        f"[REFERENCE ASSET FINGERPRINTS (OPENCV, COLORTHIEF, RAPIDOCR)]\n{asset_summary_text}\n\n"
+        f"[SCRIPT ADVISORY HINTS (VERIFY AGAINST RAW SCRIPT)]\n{script_precheck.deterministic_summary_text}"
     )
 
+    selected_tool = state.get("selected_tool", "Veo")
+
     prompt = INITIAL_ANALYSIS_PROMPT.format(
+        target_model=selected_tool,
         deterministic_facts=deterministic_facts_summary,
         script=script_text,
         reference_image_descriptions="No reference images provided." if not all_image_urls else f"Provided {len(all_image_urls)} reference image(s). Please verify entity assignments against deterministic asset profiles.",

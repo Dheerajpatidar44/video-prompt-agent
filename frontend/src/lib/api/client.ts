@@ -19,7 +19,7 @@ export class ApiClient {
   }
 
   static async analyzeScript(
-    file?: File, 
+    file?: File,
     text?: string,
     tool?: string,
     characterImages?: File[],
@@ -44,7 +44,7 @@ export class ApiClient {
       method: 'POST',
       body: formData,
     });
-    
+
     return this.handleResponse<AnalyzeResponse>(response);
   }
 

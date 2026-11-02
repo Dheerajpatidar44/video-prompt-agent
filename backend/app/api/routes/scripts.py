@@ -98,7 +98,7 @@ async def _ingest_file_async(tmp_path: str, source_type: str, filename: str, con
 
 
 
-@router.post("  ze", response_model=AnalyzeResponse)
+@router.post("/analyze", response_model=AnalyzeResponse)
 async def analyze_script_endpoint(
     text: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),

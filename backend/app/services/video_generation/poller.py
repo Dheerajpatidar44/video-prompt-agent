@@ -178,12 +178,17 @@ async def run_poller_loop() -> None:
     interval = getattr(settings, "video_poll_interval_seconds", 10)
     logger.info(f"Starting video generation poller loop (interval={interval}s)")
 
-    client = get_video_client()
-
     while True:
         try:
             jobs = repo.get_incomplete_jobs()
             if not jobs:
+                await asyncio.sleep(interval)
+                continue
+
+            try:
+                client = get_video_client()
+            except Exception as client_err:
+                logger.error(f"Cannot poll video jobs - video client initialization failed: {client_err}")
                 await asyncio.sleep(interval)
                 continue
 

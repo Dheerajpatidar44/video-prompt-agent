@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Maximize, Repeat, Download, Wrench, Sparkles, X } from "lucide-react";
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Maximize, Repeat, Download, Wrench, Sparkles, X, Copy, Check } from "lucide-react";
 
 import type { GeneratedPrompt } from "@/lib/types";
 
@@ -37,7 +37,24 @@ export function FinalVideoView({
   const timelineRef = useRef<HTMLDivElement>(null);
   const [selectedPart, setSelectedPart] = useState("part1");
   const [isFixPanelOpen, setIsFixPanelOpen] = useState(false);
+  const [isPromptsModalOpen, setIsPromptsModalOpen] = useState(false);
+  const [copiedAll, setCopiedAll] = useState(false);
+  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [videoAspect, setVideoAspect] = useState<number | null>(null);
+
+  const handleCopyAll = () => {
+    const allText = prompts.map((p, idx) => {
+      let text = `--- SHOT ${p.sequence_number || idx + 1} (${p.duration_seconds}s) ---\n${p.prompt_text}`;
+      if (p.negative_constraints) text += `\nNegative: ${p.negative_constraints}`;
+      if (p.continuity_requirements && p.continuity_requirements.length > 0) {
+        text += `\nContinuity: ${p.continuity_requirements.join(', ')}`;
+      }
+      return text;
+    }).join("\n\n");
+    navigator.clipboard.writeText(allText);
+    setCopiedAll(true);
+    setTimeout(() => setCopiedAll(false), 2000);
+  };
 
   // Exact duration from video metadata or prompts; completely dynamic
   const effectiveDuration = duration > 0 ? duration : (promptsDuration > 0 ? promptsDuration : 1);
@@ -400,16 +417,37 @@ export function FinalVideoView({
         </div>
       </div>
       
-      {/* Floating Wrench Button (Visible when panel is closed) */}
-      {!isFixPanelOpen && (
-        <button 
-          onClick={() => setIsFixPanelOpen(true)}
-          className="absolute top-6 right-6 z-50 bg-gray-900 hover:bg-gray-800 p-2.5 rounded-lg border border-gray-700 text-blue-400 transition-all shadow-[0_0_15px_rgba(59,130,246,0.2)] hover:scale-105"
-          title="Open Fix Panel"
-        >
-          <Wrench size={20} />
-        </button>
-      )}
+      {/* Floating Action Buttons: Prompts + Wrench */}
+      <div className="absolute top-6 right-6 z-40 flex items-center gap-2">
+        {/* Prompts Button */}
+        {prompts && prompts.length > 0 && (
+          <button 
+            onClick={() => {
+              setIsPromptsModalOpen(true);
+              if (isFixPanelOpen) setIsFixPanelOpen(false);
+            }}
+            className="flex items-center gap-2 bg-gray-900/90 hover:bg-gray-800 hover:border-purple-500/50 px-3.5 py-2.5 rounded-xl border border-gray-700 text-purple-300 transition-all shadow-[0_0_15px_rgba(168,85,247,0.15)] hover:shadow-[0_0_20px_rgba(168,85,247,0.3)] hover:scale-105 cursor-pointer backdrop-blur-md font-medium text-xs"
+            title="View Generated Prompts"
+          >
+            <Sparkles size={15} className="text-purple-400" />
+            <span>Prompts ({prompts.length})</span>
+          </button>
+        )}
+
+        {/* Floating Wrench Button (Visible when panel is closed) */}
+        {!isFixPanelOpen && (
+          <button 
+            onClick={() => {
+              setIsFixPanelOpen(true);
+              setIsPromptsModalOpen(false);
+            }}
+            className="bg-gray-900/90 hover:bg-gray-800 p-2.5 rounded-xl border border-gray-700 text-blue-400 transition-all shadow-[0_0_15px_rgba(59,130,246,0.2)] hover:scale-105 cursor-pointer backdrop-blur-md"
+            title="Open Fix Panel"
+          >
+            <Wrench size={18} />
+          </button>
+        )}
+      </div>
 
       {/* Right Column: Editing Tools */}
       <div 
@@ -491,6 +529,137 @@ export function FinalVideoView({
           </button>
         </div>
       </div>
+
+      {/* Prompts Modal Overlay */}
+      {isPromptsModalOpen && (
+        <div 
+          className="fixed inset-0 z-50 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 md:p-8 animate-in fade-in duration-200"
+          onClick={() => setIsPromptsModalOpen(false)}
+        >
+          <div 
+            className="relative w-full max-w-4xl max-h-[85vh] bg-[#0c0d12] border border-gray-800 rounded-2xl shadow-[0_10px_50px_rgba(0,0,0,0.85)] flex flex-col overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-[#10121a]/90 shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400">
+                  <Sparkles size={18} />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    Generated Video Prompts
+                    <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 font-normal border border-purple-500/30">
+                      {prompts.length} Shots
+                    </span>
+                  </h3>
+                  <p className="text-xs text-gray-400">
+                    Total Runtime: {effectiveDuration.toFixed(1)}s · Cinematic directives & camera parameters
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={handleCopyAll}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium cursor-pointer transition-all ${
+                    copiedAll 
+                      ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" 
+                      : "border-gray-700 bg-gray-900/80 hover:bg-gray-800 text-gray-300 hover:text-white"
+                  }`}
+                  title="Copy all prompts to clipboard"
+                >
+                  {copiedAll ? <Check size={14} /> : <Copy size={14} />}
+                  <span>{copiedAll ? "All Copied!" : "Copy All Prompts"}</span>
+                </button>
+
+                <button
+                  onClick={() => setIsPromptsModalOpen(false)}
+                  className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-gray-800 transition cursor-pointer"
+                  title="Close (Esc)"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Scrollable Body */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {prompts.map((prompt, idx) => {
+                let fullPromptText = prompt.prompt_text;
+                if (prompt.negative_constraints) {
+                  fullPromptText += `\n\nNegative: ${prompt.negative_constraints}`;
+                }
+                if (prompt.continuity_requirements && prompt.continuity_requirements.length > 0) {
+                  fullPromptText += `\n\nContinuity: ${prompt.continuity_requirements.join(', ')}`;
+                }
+
+                const isCopied = copiedIndex === idx;
+
+                return (
+                  <div
+                    key={prompt.prompt_id || idx}
+                    className="p-5 rounded-xl bg-[#12141c]/90 border border-gray-800/80 flex flex-col gap-3 relative overflow-hidden hover:border-gray-700 transition"
+                  >
+                    <div className="absolute left-0 top-0 bottom-0 w-1 bg-gradient-to-b from-purple-500 to-blue-500" />
+
+                    <div className="flex items-center justify-between flex-wrap gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold px-2.5 py-1 rounded-md bg-white/5 text-gray-300 border border-white/5">
+                          Shot {prompt.sequence_number || idx + 1}
+                        </span>
+                        <span className="text-xs text-gray-400">
+                          {prompt.duration_seconds}s
+                          {prompt.camera_parameters ? ` · ${prompt.camera_parameters}` : ""}
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(fullPromptText);
+                          setCopiedIndex(idx);
+                          setTimeout(() => setCopiedIndex(null), 2000);
+                        }}
+                        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs cursor-pointer transition-all ${
+                          isCopied
+                            ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400"
+                            : "border-gray-800 bg-gray-900/60 hover:bg-gray-800 text-gray-400 hover:text-white"
+                        }`}
+                        title="Copy this shot prompt"
+                      >
+                        {isCopied ? <Check size={13} /> : <Copy size={13} />}
+                        <span>{isCopied ? "Copied!" : "Copy"}</span>
+                      </button>
+                    </div>
+
+                    <div className="bg-[#090a0f] rounded-lg p-3.5 border border-gray-800/60">
+                      <p className="text-xs font-mono leading-relaxed text-gray-200 whitespace-pre-wrap selection:bg-purple-500/30">
+                        {fullPromptText}
+                      </p>
+                    </div>
+
+                    {/* Negative / Continuity / Tags */}
+                    {(prompt.style_modifiers || prompt.motion_parameters) && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {prompt.style_modifiers && (
+                          <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-purple-500/10 text-purple-300 border border-purple-500/20">
+                            Style: {prompt.style_modifiers}
+                          </span>
+                        )}
+                        {prompt.motion_parameters && (
+                          <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-blue-500/10 text-blue-300 border border-blue-500/20">
+                            Motion: {prompt.motion_parameters}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );

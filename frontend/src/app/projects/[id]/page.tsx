@@ -6,8 +6,9 @@ import { motion } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
 import { FinalVideoView } from "@/components/sections/FinalVideoView";
+import { ResultsView } from "@/components/sections/ResultsView";
 import { ApiClient } from "@/lib/api/client";
-import { ArrowLeft, Sparkles, Play, Download } from "lucide-react";
+import { ArrowLeft, Sparkles, Play, Download, AlertCircle } from "lucide-react";
 import type { MasterScenePlan, PromptSet } from "@/lib/types";
 
 export default function ProjectDetailsPage() {
@@ -23,6 +24,7 @@ export default function ProjectDetailsPage() {
   const [showFullVideo, setShowFullVideo] = useState(true);
   const [previewAspect, setPreviewAspect] = useState<number | null>(null);
   const [previewProgress, setPreviewProgress] = useState(0);
+  const [showPromptsWhileGenerating, setShowPromptsWhileGenerating] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -30,14 +32,22 @@ export default function ProjectDetailsPage() {
     let isMounted = true;
     let interval: NodeJS.Timeout | null = null;
 
-    // 1. Fetch prompts only once on initial load (prompts are static)
+    // 1. Fetch prompts and scene plan once on initial load
     ApiClient.getPrompts(id)
       .then((promptRes) => {
         if (isMounted && promptRes?.prompt_set) {
           setPrompts(promptRes.prompt_set);
         }
       })
-      .catch(() => {});
+      .catch(() => { });
+
+    ApiClient.getScenePlan(id)
+      .then((spRes) => {
+        if (isMounted && spRes?.scene_plan) {
+          setScenePlan(spRes.scene_plan);
+        }
+      })
+      .catch(() => { });
 
     // 2. Poll video status only while actively generating
     const checkVideoStatus = async () => {
@@ -107,144 +117,176 @@ export default function ProjectDetailsPage() {
 
         <main className={`flex-1 overflow-y-auto ${showFullVideo ? "p-0" : "p-6 md:p-8 lg:p-12"} relative z-0 flex flex-col`}>
           {loading && !videoStatus ? (
-             <div className="flex flex-col items-center justify-center p-32 space-y-4">
-               <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-[#ff3366]"></div>
-               <p className="text-gray-400 font-medium">Loading project details...</p>
-             </div>
+            <div className="flex flex-col items-center justify-center p-32 space-y-4">
+              <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-[#ff3366]"></div>
+              <p className="text-gray-400 font-medium">Loading project details...</p>
+            </div>
           ) : (videoStatus?.status === 'COMPLETED' || videoStatus?.status === 'PARTIAL_FAILURE') && (videoStatus?.final_video_url || videoStatus?.jobs?.find((j: any) => j.status === 'COMPLETED')?.video_url) ? (
-             showFullVideo ? (
-               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col h-full">
-                 <FinalVideoView 
-                   videoUrl={videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url} 
-                   prompts={prompts?.prompts || []} 
-                   totalDuration={prompts?.total_duration || 12} 
-                 />
-               </motion.div>
-             ) : (
-               <div className="max-w-6xl mx-auto w-full space-y-8">
-                 <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col items-start justify-start">
-                   <div 
-                     className="relative cursor-pointer group rounded-3xl overflow-hidden shadow-2xl border border-gray-800 transition-all"
-                     style={{ 
-                       width: previewAspect && previewAspect < 1 ? 'auto' : '350px',
-                       height: previewAspect && previewAspect < 1 ? '380px' : 'auto',
-                       aspectRatio: previewAspect ? `${previewAspect}` : '16/9' 
-                     }}
-                     onClick={() => setShowFullVideo(true)}
-                     onMouseEnter={(e) => {
-                       const video = e.currentTarget.querySelector('video');
-                       if (video) video.play();
-                     }}
-                     onMouseLeave={(e) => {
-                       const video = e.currentTarget.querySelector('video');
-                       if (video) {
-                         video.pause();
-                         video.currentTime = 0;
-                         setPreviewProgress(0);
-                       }
-                     }}
-                   >
-                     <video 
-                       src={videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url} 
-                       className="w-full h-full object-cover" 
-                       muted 
-                       playsInline 
-                       onLoadedMetadata={(e) => {
-                         const w = e.currentTarget.videoWidth;
-                         const h = e.currentTarget.videoHeight;
-                         if (w && h) setPreviewAspect(w / h);
-                       }}
-                       onTimeUpdate={(e) => {
-                         const video = e.currentTarget;
-                         const progress = (video.currentTime / (video.duration || 1)) * 100;
-                         setPreviewProgress(progress);
-                       }}
-                     />
-                     
-                     {/* Default Play Icon (Hidden on Hover) */}
-                     <div className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center opacity-100 group-hover:opacity-0 transition-opacity duration-300">
-                       <Play size={16} className="text-white ml-0.5" fill="currentColor" />
-                     </div>
+            showFullVideo ? (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col h-full">
+                <FinalVideoView
+                  videoUrl={videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url}
+                  prompts={prompts?.prompts || []}
+                  totalDuration={prompts?.total_duration || 12}
+                />
+              </motion.div>
+            ) : (
+              <div className="max-w-6xl mx-auto w-full space-y-8">
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col items-start justify-start">
+                  <div
+                    className="relative cursor-pointer group rounded-3xl overflow-hidden shadow-2xl border border-gray-800 transition-all"
+                    style={{
+                      width: previewAspect && previewAspect < 1 ? 'auto' : '350px',
+                      height: previewAspect && previewAspect < 1 ? '380px' : 'auto',
+                      aspectRatio: previewAspect ? `${previewAspect}` : '16/9'
+                    }}
+                    onClick={() => setShowFullVideo(true)}
+                    onMouseEnter={(e) => {
+                      const video = e.currentTarget.querySelector('video');
+                      if (video) video.play();
+                    }}
+                    onMouseLeave={(e) => {
+                      const video = e.currentTarget.querySelector('video');
+                      if (video) {
+                        video.pause();
+                        video.currentTime = 0;
+                        setPreviewProgress(0);
+                      }
+                    }}
+                  >
+                    <video
+                      src={videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url}
+                      className="w-full h-full object-cover"
+                      muted
+                      playsInline
+                      onLoadedMetadata={(e) => {
+                        const w = e.currentTarget.videoWidth;
+                        const h = e.currentTarget.videoHeight;
+                        if (w && h) setPreviewAspect(w / h);
+                      }}
+                      onTimeUpdate={(e) => {
+                        const video = e.currentTarget;
+                        const progress = (video.currentTime / (video.duration || 1)) * 100;
+                        setPreviewProgress(progress);
+                      }}
+                    />
 
-                     {/* Top Right Download Button (Visible on Hover) */}
-                     <div className="absolute top-4 right-4 w-9 h-9 bg-[#e0deda] backdrop-blur-md rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity translate-y-[-5px] group-hover:translate-y-0 duration-300">
-                        <button 
-                          className="text-gray-800 hover:text-black transition-all hover:scale-110 cursor-pointer w-full h-full flex items-center justify-center" 
-                          onClick={async (e) => { 
-                            e.stopPropagation(); 
-                            try {
-                              const urlToFetch = videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url;
-                              const response = await fetch(urlToFetch);
-                              const blob = await response.blob();
-                              const url = window.URL.createObjectURL(blob);
-                              const link = document.createElement("a");
-                              link.href = url;
-                              link.download = "Generated_Video.mp4";
-                              document.body.appendChild(link);
-                              link.click();
-                              document.body.removeChild(link);
-                              window.URL.revokeObjectURL(url);
-                            } catch (err) {
-                              window.open(videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url, "_blank");
-                            }
-                          }}
-                        >
-                          <Download size={16} />
-                        </button>
-                     </div>
+                    {/* Default Play Icon (Hidden on Hover) */}
+                    <div className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center opacity-100 group-hover:opacity-0 transition-opacity duration-300">
+                      <Play size={16} className="text-white ml-0.5" fill="currentColor" />
+                    </div>
 
-                     {/* Bottom Gradient & Text (Visible on Hover) */}
-                     <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-5">
-                        <div className="flex items-center gap-3 mb-3">
-                           <div className="w-6 h-6 rounded-full border-2 border-white flex items-center justify-center shrink-0">
-                             <Play size={10} className="text-white ml-0.5" fill="currentColor" />
-                           </div>
-                           <span className="text-white font-semibold text-[15px] truncate">
-                             Generated Video.mp4
-                           </span>
+                    {/* Top Right Download Button (Visible on Hover) */}
+                    <div className="absolute top-4 right-4 w-9 h-9 bg-[#e0deda] backdrop-blur-md rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity translate-y-[-5px] group-hover:translate-y-0 duration-300">
+                      <button
+                        className="text-gray-800 hover:text-black transition-all hover:scale-110 cursor-pointer w-full h-full flex items-center justify-center"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          try {
+                            const urlToFetch = videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url;
+                            const response = await fetch(urlToFetch);
+                            const blob = await response.blob();
+                            const url = window.URL.createObjectURL(blob);
+                            const link = document.createElement("a");
+                            link.href = url;
+                            link.download = "Generated_Video.mp4";
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            window.URL.revokeObjectURL(url);
+                          } catch (err) {
+                            window.open(videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url, "_blank");
+                          }
+                        }}
+                      >
+                        <Download size={16} />
+                      </button>
+                    </div>
+
+                    {/* Bottom Gradient & Text (Visible on Hover) */}
+                    <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-5">
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className="w-6 h-6 rounded-full border-2 border-white flex items-center justify-center shrink-0">
+                          <Play size={10} className="text-white ml-0.5" fill="currentColor" />
                         </div>
-                        {/* Progress Bar */}
-                        <div className="w-full h-[2px] bg-white/30 overflow-hidden">
-                           <div 
-                             className="h-full bg-white transition-all duration-100 ease-linear" 
-                             style={{ width: `${previewProgress}%` }}
-                           ></div>
-                        </div>
-                     </div>
-                   </div>
-                 </motion.div>
-               </div>
-             )
+                        <span className="text-white font-semibold text-[15px] truncate">
+                          Generated Video.mp4
+                        </span>
+                      </div>
+                      {/* Progress Bar */}
+                      <div className="w-full h-[2px] bg-white/30 overflow-hidden">
+                        <div
+                          className="h-full bg-white transition-all duration-100 ease-linear"
+                          style={{ width: `${previewProgress}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+            )
           ) : (videoStatus?.status === 'COMPLETED' || videoStatus?.status === 'PARTIAL_FAILURE' || videoStatus?.status === 'FAILED') ? (
-             <div className="flex flex-col items-center justify-center p-32 space-y-4 text-center">
-               <div className="bg-gray-900/50 p-4 rounded-full border border-gray-800 mb-2">
-                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500">
-                   <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
-                   <line x1="7" y1="2" x2="7" y2="22"></line>
-                   <line x1="17" y1="2" x2="17" y2="22"></line>
-                   <line x1="2" y1="12" x2="22" y2="12"></line>
-                   <line x1="2" y1="7" x2="7" y2="7"></line>
-                   <line x1="2" y1="17" x2="7" y2="17"></line>
-                   <line x1="17" y1="17" x2="22" y2="17"></line>
-                   <line x1="17" y1="7" x2="22" y2="7"></line>
-                 </svg>
-               </div>
-               <h3 className="text-xl font-medium text-white">No Video Available</h3>
-               <p className="text-gray-400 max-w-md">
-                 This project does not have a generated video. It may be a legacy project or the video generation failed.
-               </p>
-               <button
-                 onClick={() => router.push("/")}
-                 className="mt-4 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl text-white font-medium text-sm transition cursor-pointer"
-               >
-                 Create New Video
-               </button>
-             </div>
+            prompts && prompts.prompts && prompts.prompts.length > 0 ? (
+              <div className="max-w-5xl mx-auto w-full py-8 px-4 sm:px-6 flex flex-col gap-6">
+                {/* Video Not Rendered Notice */}
+                <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-xl bg-amber-500/15 text-amber-400 shrink-0">
+                      <AlertCircle size={20} />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-semibold text-amber-200">Video File Not Generated</h4>
+                      <p className="text-xs text-gray-400">
+                        Video rendering did not output a stitched file, but all cinematic prompts and scene plans for this project are fully available below.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => router.push("/")}
+                    className="self-start sm:self-center px-4 py-2 bg-white/10 hover:bg-white/15 rounded-xl text-white font-medium text-xs transition cursor-pointer shrink-0"
+                  >
+                    Create New Video
+                  </button>
+                </div>
+
+                {/* ResultsView with Scene Plan & Prompts */}
+                <ResultsView
+                  scenePlan={scenePlan}
+                  prompts={prompts}
+                  onReset={() => router.push("/")}
+                />
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center p-32 space-y-4 text-center">
+                <div className="bg-gray-900/50 p-4 rounded-full border border-gray-800 mb-2">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-500">
+                    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+                    <line x1="7" y1="2" x2="7" y2="22"></line>
+                    <line x1="17" y1="2" x2="17" y2="22"></line>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <line x1="2" y1="7" x2="7" y2="7"></line>
+                    <line x1="2" y1="17" x2="7" y2="17"></line>
+                    <line x1="17" y1="17" x2="22" y2="17"></line>
+                    <line x1="17" y1="7" x2="22" y2="7"></line>
+                  </svg>
+                </div>
+                <h3 className="text-xl font-medium text-white">No Video Available</h3>
+                <p className="text-gray-400 max-w-md">
+                  This project does not have a generated video. It may be a legacy project or the video generation failed.
+                </p>
+                <button
+                  onClick={() => router.push("/")}
+                  className="mt-4 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl text-white font-medium text-sm transition cursor-pointer"
+                >
+                  Create New Video
+                </button>
+              </div>
+            )
           ) : (
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex-1 flex flex-col items-center justify-center space-y-6"
+              className="flex-1 flex flex-col items-center justify-center space-y-6 py-12 px-4"
             >
               <div className="relative">
                 <div
@@ -266,6 +308,28 @@ export default function ProjectDetailsPage() {
                     : "Our multi-agent system is working on your project."}
                 </p>
               </div>
+
+              {prompts && prompts.prompts && prompts.prompts.length > 0 && (
+                <div className="pt-4 flex flex-col items-center w-full max-w-5xl">
+                  <button
+                    onClick={() => setShowPromptsWhileGenerating(!showPromptsWhileGenerating)}
+                    className="px-5 py-2.5 rounded-xl bg-purple-600/15 hover:bg-purple-600/25 border border-purple-500/30 text-purple-300 font-medium text-xs transition flex items-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(168,85,247,0.15)]"
+                  >
+                    <Sparkles size={15} />
+                    {showPromptsWhileGenerating ? "Hide Generated Prompts" : `View Generated Prompts (${prompts.prompts.length} Shots)`}
+                  </button>
+
+                  {showPromptsWhileGenerating && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 15 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="w-full mt-8 text-left"
+                    >
+                      <ResultsView scenePlan={scenePlan} prompts={prompts} onReset={() => router.push("/")} />
+                    </motion.div>
+                  )}
+                </div>
+              )}
             </motion.div>
           )}
         </main>

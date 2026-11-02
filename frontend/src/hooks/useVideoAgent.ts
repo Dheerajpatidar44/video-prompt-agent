@@ -105,8 +105,8 @@ export function useVideoAgent() {
             const isStitching = (vData.completed_shots > 0 && vData.completed_shots === vData.total_shots && !vData.final_video_url) || vData.status === "STITCHING";
 
             if (vData.final_video_url) {
-              setPartial({ 
-                videoStatus: vData.status, 
+              setPartial({
+                videoStatus: vData.status,
                 finalVideoUrl: vData.final_video_url,
                 completedShots: vData.completed_shots,
                 totalShots: vData.total_shots,
@@ -115,8 +115,8 @@ export function useVideoAgent() {
             } else if (vData.status === "COMPLETED" || vData.status === "PARTIAL_FAILURE") {
               const fallbackUrl = vData.jobs?.find((j: any) => j.status === "COMPLETED")?.video_url;
               if (fallbackUrl) {
-                setPartial({ 
-                  videoStatus: vData.status, 
+                setPartial({
+                  videoStatus: vData.status,
                   finalVideoUrl: fallbackUrl,
                   completedShots: vData.completed_shots,
                   totalShots: vData.total_shots,

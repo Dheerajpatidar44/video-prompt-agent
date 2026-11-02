@@ -311,18 +311,18 @@ class ScriptHeuristicService:
         lines_summary = []
         lines_summary.append(f"- Duration: {dur_text}{slots_text}")
         lines_summary.append(f"- {aspect_text}")
-        lines_summary.append(f"- Detected Scene Count: {len(scenes)}")
+        lines_summary.append(f"- Candidate Scene Boundary Hints (Advisory - verify against raw script):")
         for sc in scenes[:8]:
             lines_summary.append(f"  * Scene {sc.scene_number}: {sc.header} [{sc.setting_type}/{sc.lighting_time}]")
 
         if dialogue:
-            lines_summary.append(f"- Dialogue Analysis: {len(dialogue)} line(s), {total_words} words (Estimated: ~{est_time}s)")
+            lines_summary.append(f"- Dialogue & Voiceover Hints: {len(dialogue)} line(s), {total_words} words (Estimated speech: ~{est_time}s)")
             for d in dialogue[:5]:
                 lines_summary.append(f"  * {d.speaker}: \"{d.text}\" ({d.word_count} words)")
             if not feasible:
-                lines_summary.append(f"  ⚠️ TIMING WARNING: Dialogue duration (~{est_time}s) exceeds available target duration ({effective_duration}s).")
+                lines_summary.append(f"  ⚠️ TIMING ADVISORY: Spoken dialogue (~{est_time}s) may exceed target duration ({effective_duration}s).")
         else:
-            lines_summary.append("- Dialogue: No spoken dialogue lines detected (Visual-only narrative).")
+            lines_summary.append("- Dialogue & Voiceover Hints: No structured dialogue tags detected via regex. Check raw script narrative directly for voiceovers or unformatted dialogue.")
 
         return ScriptPreCheckReport(
             detected_duration_seconds=effective_duration,

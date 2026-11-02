@@ -24,12 +24,12 @@ logger = logging.getLogger(__name__)
 
 async def generate_videos(state: AgentState) -> AgentState:
     """Submit all approved prompts for video generation."""
-    project_id = state.get("project_id")
-    prompt_set = state.get("prompt_set")
     spec = state.get("video_specification")
+    project_id = state.get("project_id") or (getattr(spec, "project_id", None) if spec else None)
+    prompt_set = state.get("prompt_set")
 
     if not project_id or not prompt_set or not spec:
-        logger.error("generate_videos: missing project_id, prompt_set, or spec.")
+        logger.error(f"generate_videos: missing inputs. project_id={bool(project_id)}, prompt_set={bool(prompt_set)}, spec={bool(spec)}")
         return {**state, "status": AgentStatus.ERROR, "error": "Missing inputs for video generation."}
 
     if not settings.use_mock_video_api:
