@@ -47,6 +47,10 @@ class AgentState(TypedDict):
     generated_prompts: List[str]
     validation_results: Dict[str, Any]
     
+    # Visual Assets Layer
+    master_asset_catalog: Optional[Dict[str, str]]
+    shot_image_manifest: Optional[Dict[str, List[Dict[str, Any]]]]
+    
     video_generation_status: Optional[str]  # e.g. "IN_PROGRESS", "COMPLETED", "PARTIAL_FAILURE"
     final_video_url: Optional[str]
     

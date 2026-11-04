@@ -23,7 +23,8 @@ def test_config_loads_defaults():
     os.environ.update(old_env)
 
 
-def test_google_api_key_optional_and_hidden_in_repr():
+def test_google_api_key_optional_and_hidden_in_repr(monkeypatch):
+    monkeypatch.delenv('GOOGLE_API_KEY', raising=False)
     settings = Settings(_env_file=None, anthropic_api_key="dummy-key-for-test", google_api_key="super_secret_key_999")
     assert settings.google_api_key.get_secret_value() == "super_secret_key_999"
     # Key must NOT appear in repr

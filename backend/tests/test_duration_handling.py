@@ -17,8 +17,8 @@ from app.services.video_generation.stitcher import (
 def test_veo_tool_rules_contain_duration_and_structure_directives():
     """Verify that Veo prompt rules enforce duration blocks and prompt anatomy."""
     rules = get_tool_rules("Veo")
-    assert "Google Veo 3.1 Lite generates clips strictly in fixed durations: 4, 6, or 8 seconds" in rules
-    assert "Arbitrary durations (1s, 2s, 3s, 5s, 7s) are NOT natively supported" in rules
+    assert "Veo 3.1 generates clips of exactly 4, 6 or 8 seconds" in rules
+    assert "Every shot MUST have duration_seconds of 4, 6 or 8" in rules
     assert "VEO PROMPT FORMULA" in rules
     assert "SINGLE CONTINUOUS MOTION BEAT" in rules
 
@@ -184,3 +184,83 @@ def test_validate_prompt_set_warns_on_sub_4s_veo_shot():
     # Should contain SHOT_DURATION_TOO_SHORT warning issue
     issue_types = [iss.issue_type for iss in validated.validation_issues]
     assert "SHOT_DURATION_TOO_SHORT" in issue_types
+
+
+def test_detect_duration_from_various_script_phrasings():
+    """Verify that ScriptHeuristicService reliably detects duration from various user phrasings."""
+    from app.services.script_heuristic_service import ScriptHeuristicService
+
+    test_cases = [
+        ("Final video duration 8 sec for commercial ad.", 8.0),
+        ("Create an 8-second video of a car.", 8.0),
+        ("Target duration: 8s. Aspect ratio: 16:9.", 8.0),
+        ("Length: 8 seconds. Hero walking.", 8.0),
+        ("Runtime: 8. Landscape format.", 8.0),
+        ("Make a 4 second clip.", 4.0),
+        ("16s promotional video.", 16.0),
+    ]
+
+    for script, expected_dur in test_cases:
+        dur, _ = ScriptHeuristicService.detect_duration_and_aspect(script)
+        assert dur == expected_dur, f"Failed to extract {expected_dur} from: {script}"
+
+
+@pytest.mark.asyncio
+async def test_generate_scenes_and_prompts_enforces_8s_ceiling():
+    """Verify that generate_scenes_and_prompts condenses 4 shots (16s) to 2 shots (8s) when target is 8s."""
+    from app.schemas.specification import VideoSpecification, OutputRequirements
+    from app.schemas.generation import GenerationResult, GeneratedScenePlan, GeneratedShotPlan, GeneratedPromptItem
+    from app.graph.nodes.generate_scenes_and_prompts import generate_scenes_and_prompts
+
+    spec = VideoSpecification(
+        project_id="test_8s_guard",
+        output_requirements=OutputRequirements(duration_seconds=8)
+    )
+
+    # Mock LLM returning 4 shots x 4s = 16s (the exact bug scenario)
+    fake_generation_result = GenerationResult(
+        total_duration=16,
+        scenes=[
+            GeneratedScenePlan(
+                scene_id="sc_1", scene_number=1, title="Scene 1", purpose="Street",
+                narrative_role="ACTION", start_time=0.0, end_time=8.0, duration_seconds=8,
+                shots=[
+                    GeneratedShotPlan(shot_id="sh_1", shot_number="1", scene_id="sc_1", start_time=0.0, end_time=4.0, duration_seconds=4, purpose="p1", subject="s1", action="a1"),
+                    GeneratedShotPlan(shot_id="sh_2", shot_number="2", scene_id="sc_1", start_time=4.0, end_time=8.0, duration_seconds=4, purpose="p2", subject="s2", action="a2"),
+                ]
+            ),
+            GeneratedScenePlan(
+                scene_id="sc_2", scene_number=2, title="Scene 2", purpose="Rooftop",
+                narrative_role="ACTION", start_time=8.0, end_time=16.0, duration_seconds=8,
+                shots=[
+                    GeneratedShotPlan(shot_id="sh_3", shot_number="3", scene_id="sc_2", start_time=8.0, end_time=12.0, duration_seconds=4, purpose="p3", subject="s3", action="a3"),
+                    GeneratedShotPlan(shot_id="sh_4", shot_number="4", scene_id="sc_2", start_time=12.0, end_time=16.0, duration_seconds=4, purpose="p4", subject="s4", action="a4"),
+                ]
+            ),
+        ],
+        prompts=[
+            GeneratedPromptItem(prompt_id="pr_1", scene_id="sc_1", shot_id="sh_1", sequence_number=1, duration_seconds=4, prompt_text="Cinematic shot 1"),
+            GeneratedPromptItem(prompt_id="pr_2", scene_id="sc_1", shot_id="sh_2", sequence_number=2, duration_seconds=4, prompt_text="Cinematic shot 2"),
+            GeneratedPromptItem(prompt_id="pr_3", scene_id="sc_2", shot_id="sh_3", sequence_number=3, duration_seconds=4, prompt_text="Cinematic shot 3"),
+            GeneratedPromptItem(prompt_id="pr_4", scene_id="sc_2", shot_id="sh_4", sequence_number=4, duration_seconds=4, prompt_text="Cinematic shot 4"),
+        ]
+    )
+
+    state = {
+        "video_specification": spec,
+        "project_id": "test_8s_guard",
+        "selected_tool": "Veo",
+    }
+
+    with patch("app.graph.nodes.generate_scenes_and_prompts.llm_service.generate_structured", return_value=fake_generation_result):
+        out_state = await generate_scenes_and_prompts(state)
+
+    scene_plan = out_state["scene_plan"]
+    prompt_set = out_state["prompt_set"]
+
+    # Must be strictly 8 seconds, exactly 2 shots!
+    assert scene_plan.total_duration == 8
+    assert prompt_set.total_duration == 8
+    assert len(prompt_set.prompts) == 2
+    assert [p.shot_id for p in prompt_set.prompts] == ["sh_1", "sh_2"]
+    assert sum(p.duration_seconds for p in prompt_set.prompts) == 8

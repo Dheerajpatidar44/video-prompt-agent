@@ -80,7 +80,8 @@ class VeoClient(VideoGenerationClient):
         """Fetch or load image bytes and wrap in types.Image for Veo image-to-video."""
         if not ref_url or not isinstance(ref_url, str):
             return None
-        if not ref_url.startswith(("http://", "https://")) and not os.path.exists(ref_url):
+        resolved_local_path = next((p for p in (ref_url, ref_url.lstrip("/\\"), os.path.join("backend", ref_url.lstrip("/\\")), os.path.abspath(ref_url)) if os.path.exists(p)), None)
+        if not ref_url.startswith(("http://", "https://")) and not resolved_local_path:
             return None
         try:
             if ref_url.startswith("http://") or ref_url.startswith("https://"):
@@ -95,11 +96,11 @@ class VeoClient(VideoGenerationClient):
                     raw_type = resp.headers.get("content-type", "image/jpeg").split(";")[0].strip()
                     mime_type = raw_type if raw_type.startswith("image/") else "image/jpeg"
                     return types.Image(image_bytes=image_bytes, mime_type=mime_type)
-            elif os.path.exists(ref_url):
+            elif resolved_local_path:
                 import mimetypes
-                mime_type, _ = mimetypes.guess_type(ref_url)
+                mime_type, _ = mimetypes.guess_type(resolved_local_path)
                 mime_type = mime_type or "image/jpeg"
-                with open(ref_url, "rb") as f:
+                with open(resolved_local_path, "rb") as f:
                     image_bytes = f.read()
                 return types.Image(image_bytes=image_bytes, mime_type=mime_type)
             else:
@@ -116,6 +117,8 @@ class VeoClient(VideoGenerationClient):
         aspect_ratio: str,
         negative_prompt: Optional[str] = None,
         reference_image_url: Optional[str] = None,
+        reference_image_urls: Optional[list[str]] = None,
+        reference_assets: Optional[list[dict]] = None,
     ) -> str:
         # 1. Duration snapping using billed_seconds
         duration = billed_seconds(duration_seconds, self.resolution)
@@ -136,7 +139,7 @@ class VeoClient(VideoGenerationClient):
                 f"Prompt is about {estimated_tokens} tokens; Veo accepts at most 1,024. Shorten the prompt."
             )
 
-        # 4. Build config
+        # 4. Build base config kwargs
         config_kwargs: dict[str, Any] = {
             "aspect_ratio": aspect,
             "resolution": self.resolution,
@@ -148,22 +151,58 @@ class VeoClient(VideoGenerationClient):
         if negative_prompt and self.negative_prompt_mode == "append":
             config_kwargs["negative_prompt"] = negative_prompt
 
-        config = types.GenerateVideosConfig(**config_kwargs)
+        # 5. Process reference images (Ingredients-to-Video mode)
+        # Veo 3.1 supports up to 3 reference images in GenerateVideosConfig
+        ref_items_to_load = []
+        if reference_assets:
+            ref_items_to_load = reference_assets[:3]
+        elif reference_image_urls:
+            ref_items_to_load = [{"path": u, "role": "ENVIRONMENT"} for u in reference_image_urls[:3]]
+        elif reference_image_url:
+            ref_items_to_load = [{"path": reference_image_url, "role": "CHARACTER"}]
 
-        # 5. Load reference image for Image-to-Video if provided
-        veo_image = None
-        if reference_image_url:
-            veo_image = await self._load_reference_image(reference_image_url)
-            if veo_image:
-                logger.info(f"Veo Image-to-Video enabled: attached image from {reference_image_url}")
+        loaded_ref_objects = []
+        first_frame_image = None
+
+        for item in ref_items_to_load:
+            path = item.get("path")
+            role = (item.get("role") or "ENVIRONMENT").upper()
+            if path:
+                img_obj = await self._load_reference_image(path)
+                if img_obj:
+                    if first_frame_image is None:
+                        first_frame_image = img_obj
+                    # In Google Veo 3.1, reference images guide characters, products, objects, and scene keyframes.
+                    # Veo 3.1 architecture strictly requires reference_type="asset". Using "style" triggers:
+                    # 'Reference to video does not support this mix of references.'
+                    ref_type = "asset"
+                    try:
+                        if hasattr(types, "VideoGenerationReferenceImage"):
+                            ref_img_wrapper = types.VideoGenerationReferenceImage(
+                                image=img_obj,
+                                reference_type=ref_type,
+                            )
+                            loaded_ref_objects.append(ref_img_wrapper)
+                    except Exception as wrap_err:
+                        logger.warning(f"Failed to wrap VideoGenerationReferenceImage: {wrap_err}")
+
+        # If multi-reference objects were built, attach them directly into GenerateVideosConfig
+        if loaded_ref_objects:
+            config_kwargs["reference_images"] = loaded_ref_objects
+            logger.info(f"Veo Multi-Reference enabled: attached {len(loaded_ref_objects)} reference image(s) to config")
+
+        config = types.GenerateVideosConfig(**config_kwargs)
 
         generate_kwargs: dict[str, Any] = {
             "model": self.model,
             "prompt": prompt_text,
             "config": config,
         }
-        if veo_image is not None:
-            generate_kwargs["image"] = veo_image
+
+        # If no multi-reference objects wrapped but single image exists, attach as image
+        if not loaded_ref_objects and first_frame_image is not None:
+            generate_kwargs["image"] = first_frame_image
+            logger.info("Veo Image-to-Video single-frame enabled: attached image")
 
         try:
             if hasattr(self._client, "aio") and hasattr(self._client.aio, "models"):
@@ -174,13 +213,16 @@ class VeoClient(VideoGenerationClient):
                     **generate_kwargs
                 )
         except Exception as exc:
-            # Fallback: if job submission failed with image, retry once in text-only mode
-            if "image" in generate_kwargs:
+            # Fallback: if job submission failed with reference_images or image, retry once in text-only mode
+            has_refs = bool(config_kwargs.get("reference_images") or "image" in generate_kwargs)
+            if has_refs:
                 logger.warning(
-                    f"Veo job submission with reference image failed ({exc}). "
+                    f"Veo job submission with reference images/image failed ({exc}). "
                     f"Falling back to text-only video generation..."
                 )
                 generate_kwargs.pop("image", None)
+                clean_kwargs = {k: v for k, v in config_kwargs.items() if k != "reference_images"}
+                generate_kwargs["config"] = types.GenerateVideosConfig(**clean_kwargs)
                 try:
                     if hasattr(self._client, "aio") and hasattr(self._client.aio, "models"):
                         operation = await self._client.aio.models.generate_videos(**generate_kwargs)

@@ -43,6 +43,8 @@ class VideoGenerationClient(ABC):
         aspect_ratio: str,
         negative_prompt: Optional[str] = None,
         reference_image_url: Optional[str] = None,
+        reference_image_urls: Optional[list[str]] = None,
+        reference_assets: Optional[list[dict]] = None,
     ) -> str:
         """Submit a generation job and return an external_job_id.
 

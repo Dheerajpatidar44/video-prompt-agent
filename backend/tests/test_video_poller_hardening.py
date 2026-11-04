@@ -78,6 +78,7 @@ async def test_permanent_error_resubmits(fake_repo, fake_client, monkeypatch):
     async def dummy_state(*a):
         class P: 
             prompt_id = "pr1"
+            shot_id = "s1"
             prompt_text = "test"
             duration_seconds = 2
             negative_constraints = None

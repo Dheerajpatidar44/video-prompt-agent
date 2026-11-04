@@ -142,3 +142,26 @@ export interface PromptSet {
   status: string;
   validation_issues: any[];
 }
+
+export interface ShotImageAsset {
+  asset_id: string;
+  role: 'CHARACTER' | 'PRODUCT' | 'ENVIRONMENT' | 'ACTION_KEYFRAME' | 'PROP_OR_OBJECT' | string;
+  path: string;
+  url: string;
+  reused?: boolean;
+}
+
+export interface ShotWithImages {
+  shot_id: string;
+  sequence_number?: number;
+  prompt_text?: string;
+  images: ShotImageAsset[];
+}
+
+export interface ProjectImagesResponse {
+  thread_id: string;
+  master_assets: Record<string, string>;
+  shots: ShotWithImages[];
+  total_images: number;
+  status: string;
+}

@@ -9,7 +9,7 @@ import { FinalVideoView } from "@/components/sections/FinalVideoView";
 import { ResultsView } from "@/components/sections/ResultsView";
 import { ApiClient } from "@/lib/api/client";
 import { ArrowLeft, Sparkles, Play, Download, AlertCircle } from "lucide-react";
-import type { MasterScenePlan, PromptSet } from "@/lib/types";
+import type { MasterScenePlan, PromptSet, ProjectImagesResponse } from "@/lib/types";
 
 export default function ProjectDetailsPage() {
   const params = useParams();
@@ -21,6 +21,8 @@ export default function ProjectDetailsPage() {
   const [scenePlan, setScenePlan] = useState<MasterScenePlan | null>(null);
   const [prompts, setPrompts] = useState<PromptSet | null>(null);
   const [videoStatus, setVideoStatus] = useState<any>(null);
+  const [projectImages, setProjectImages] = useState<ProjectImagesResponse | null>(null);
+  const [activeTab, setActiveTab] = useState<"video" | "plan">("video");
   const [showFullVideo, setShowFullVideo] = useState(true);
   const [previewAspect, setPreviewAspect] = useState<number | null>(null);
   const [previewProgress, setPreviewProgress] = useState(0);
@@ -32,7 +34,7 @@ export default function ProjectDetailsPage() {
     let isMounted = true;
     let interval: NodeJS.Timeout | null = null;
 
-    // 1. Fetch prompts and scene plan once on initial load
+    // 1. Fetch prompts, scene plan, and visual assets on initial load
     ApiClient.getPrompts(id)
       .then((promptRes) => {
         if (isMounted && promptRes?.prompt_set) {
@@ -45,6 +47,14 @@ export default function ProjectDetailsPage() {
       .then((spRes) => {
         if (isMounted && spRes?.scene_plan) {
           setScenePlan(spRes.scene_plan);
+        }
+      })
+      .catch(() => { });
+
+    ApiClient.getProjectImages(id)
+      .then((imgRes) => {
+        if (isMounted && imgRes) {
+          setProjectImages(imgRes);
         }
       })
       .catch(() => { });
@@ -70,6 +80,12 @@ export default function ProjectDetailsPage() {
           if (isDone && interval) {
             clearInterval(interval);
             interval = null;
+            // Refresh project images once generation completes
+            ApiClient.getProjectImages(id)
+              .then((imgRes) => {
+                if (isMounted && imgRes) setProjectImages(imgRes);
+              })
+              .catch(() => { });
           }
         } else {
           // Fallback for legacy project or no active video jobs
@@ -122,109 +138,161 @@ export default function ProjectDetailsPage() {
               <p className="text-gray-400 font-medium">Loading project details...</p>
             </div>
           ) : (videoStatus?.status === 'COMPLETED' || videoStatus?.status === 'PARTIAL_FAILURE') && (videoStatus?.final_video_url || videoStatus?.jobs?.find((j: any) => j.status === 'COMPLETED')?.video_url) ? (
-            showFullVideo ? (
-              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col h-full">
-                <FinalVideoView
-                  videoUrl={videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url}
-                  prompts={prompts?.prompts || []}
-                  totalDuration={prompts?.total_duration || 12}
-                />
-              </motion.div>
-            ) : (
-              <div className="max-w-6xl mx-auto w-full space-y-8">
-                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col items-start justify-start">
-                  <div
-                    className="relative cursor-pointer group rounded-3xl overflow-hidden shadow-2xl border border-gray-800 transition-all"
-                    style={{
-                      width: previewAspect && previewAspect < 1 ? 'auto' : '350px',
-                      height: previewAspect && previewAspect < 1 ? '380px' : 'auto',
-                      aspectRatio: previewAspect ? `${previewAspect}` : '16/9'
-                    }}
-                    onClick={() => setShowFullVideo(true)}
-                    onMouseEnter={(e) => {
-                      const video = e.currentTarget.querySelector('video');
-                      if (video) video.play();
-                    }}
-                    onMouseLeave={(e) => {
-                      const video = e.currentTarget.querySelector('video');
-                      if (video) {
-                        video.pause();
-                        video.currentTime = 0;
-                        setPreviewProgress(0);
-                      }
-                    }}
+            <div className="flex-1 flex flex-col h-full overflow-hidden">
+              {/* Tab Navigation */}
+              <div className="flex items-center justify-between px-6 py-2.5 border-b border-gray-800 bg-[#0a0a0d] shrink-0 z-10">
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setActiveTab("video")}
+                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      activeTab === "video"
+                        ? "bg-blue-600 text-white shadow-[0_0_12px_rgba(59,130,246,0.35)]"
+                        : "bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-800"
+                    }`}
                   >
-                    <video
-                      src={videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url}
-                      className="w-full h-full object-cover"
-                      muted
-                      playsInline
-                      onLoadedMetadata={(e) => {
-                        const w = e.currentTarget.videoWidth;
-                        const h = e.currentTarget.videoHeight;
-                        if (w && h) setPreviewAspect(w / h);
-                      }}
-                      onTimeUpdate={(e) => {
-                        const video = e.currentTarget;
-                        const progress = (video.currentTime / (video.duration || 1)) * 100;
-                        setPreviewProgress(progress);
-                      }}
-                    />
-
-                    {/* Default Play Icon (Hidden on Hover) */}
-                    <div className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center opacity-100 group-hover:opacity-0 transition-opacity duration-300">
-                      <Play size={16} className="text-white ml-0.5" fill="currentColor" />
-                    </div>
-
-                    {/* Top Right Download Button (Visible on Hover) */}
-                    <div className="absolute top-4 right-4 w-9 h-9 bg-[#e0deda] backdrop-blur-md rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity translate-y-[-5px] group-hover:translate-y-0 duration-300">
-                      <button
-                        className="text-gray-800 hover:text-black transition-all hover:scale-110 cursor-pointer w-full h-full flex items-center justify-center"
-                        onClick={async (e) => {
-                          e.stopPropagation();
-                          try {
-                            const urlToFetch = videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url;
-                            const response = await fetch(urlToFetch);
-                            const blob = await response.blob();
-                            const url = window.URL.createObjectURL(blob);
-                            const link = document.createElement("a");
-                            link.href = url;
-                            link.download = "Generated_Video.mp4";
-                            document.body.appendChild(link);
-                            link.click();
-                            document.body.removeChild(link);
-                            window.URL.revokeObjectURL(url);
-                          } catch (err) {
-                            window.open(videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url, "_blank");
-                          }
-                        }}
-                      >
-                        <Download size={16} />
-                      </button>
-                    </div>
-
-                    {/* Bottom Gradient & Text (Visible on Hover) */}
-                    <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-5">
-                      <div className="flex items-center gap-3 mb-3">
-                        <div className="w-6 h-6 rounded-full border-2 border-white flex items-center justify-center shrink-0">
-                          <Play size={10} className="text-white ml-0.5" fill="currentColor" />
-                        </div>
-                        <span className="text-white font-semibold text-[15px] truncate">
-                          Generated Video.mp4
+                    <Play size={13} fill="currentColor" />
+                    <span>Final Video</span>
+                  </button>
+                  <button
+                    onClick={() => setActiveTab("plan")}
+                    className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                      activeTab === "plan"
+                        ? "bg-purple-600 text-white shadow-[0_0_12px_rgba(168,85,247,0.35)]"
+                        : "bg-gray-900 text-gray-400 hover:text-white hover:bg-gray-800 border border-gray-800"
+                    }`}
+                  >
+                    <Sparkles size={13} />
+                    <span>
+                      Scene Plan & Visual Assets
+                      {projectImages?.total_images ? (
+                        <span className="ml-1.5 px-1.5 py-0.5 rounded-full bg-purple-400/20 text-purple-200 text-[10px] font-bold">
+                          {projectImages.total_images}
                         </span>
-                      </div>
-                      {/* Progress Bar */}
-                      <div className="w-full h-[2px] bg-white/30 overflow-hidden">
-                        <div
-                          className="h-full bg-white transition-all duration-100 ease-linear"
-                          style={{ width: `${previewProgress}%` }}
-                        ></div>
-                      </div>
-                    </div>
-                  </div>
-                </motion.div>
+                      ) : null}
+                    </span>
+                  </button>
+                </div>
               </div>
-            )
+
+              {/* Tab Body */}
+              <div className="flex-1 overflow-y-auto">
+                {activeTab === "video" ? (
+                  showFullVideo ? (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col h-full">
+                      <FinalVideoView
+                        videoUrl={videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url}
+                        prompts={prompts?.prompts || []}
+                        totalDuration={prompts?.total_duration || 12}
+                        projectImages={projectImages}
+                      />
+                    </motion.div>
+                  ) : (
+                    <div className="max-w-6xl mx-auto w-full space-y-8 p-6 md:p-8">
+                      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col items-start justify-start">
+                        <div
+                          className="relative cursor-pointer group rounded-3xl overflow-hidden shadow-2xl border border-gray-800 transition-all"
+                          style={{
+                            width: previewAspect && previewAspect < 1 ? 'auto' : '350px',
+                            height: previewAspect && previewAspect < 1 ? '380px' : 'auto',
+                            aspectRatio: previewAspect ? `${previewAspect}` : '16/9'
+                          }}
+                          onClick={() => setShowFullVideo(true)}
+                          onMouseEnter={(e) => {
+                            const video = e.currentTarget.querySelector('video');
+                            if (video) video.play();
+                          }}
+                          onMouseLeave={(e) => {
+                            const video = e.currentTarget.querySelector('video');
+                            if (video) {
+                              video.pause();
+                              video.currentTime = 0;
+                              setPreviewProgress(0);
+                            }
+                          }}
+                        >
+                          <video
+                            src={videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url}
+                            className="w-full h-full object-cover"
+                            muted
+                            playsInline
+                            onLoadedMetadata={(e) => {
+                              const w = e.currentTarget.videoWidth;
+                              const h = e.currentTarget.videoHeight;
+                              if (w && h) setPreviewAspect(w / h);
+                            }}
+                            onTimeUpdate={(e) => {
+                              const video = e.currentTarget;
+                              const progress = (video.currentTime / (video.duration || 1)) * 100;
+                              setPreviewProgress(progress);
+                            }}
+                          />
+
+                          {/* Default Play Icon (Hidden on Hover) */}
+                          <div className="absolute top-4 left-4 w-9 h-9 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center opacity-100 group-hover:opacity-0 transition-opacity duration-300">
+                            <Play size={16} className="text-white ml-0.5" fill="currentColor" />
+                          </div>
+
+                          {/* Top Right Download Button (Visible on Hover) */}
+                          <div className="absolute top-4 right-4 w-9 h-9 bg-[#e0deda] backdrop-blur-md rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity translate-y-[-5px] group-hover:translate-y-0 duration-300">
+                            <button
+                              className="text-gray-800 hover:text-black transition-all hover:scale-110 cursor-pointer w-full h-full flex items-center justify-center"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                try {
+                                  const urlToFetch = videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url;
+                                  const response = await fetch(urlToFetch);
+                                  const blob = await response.blob();
+                                  const url = window.URL.createObjectURL(blob);
+                                  const link = document.createElement("a");
+                                  link.href = url;
+                                  link.download = "Generated_Video.mp4";
+                                  document.body.appendChild(link);
+                                  link.click();
+                                  document.body.removeChild(link);
+                                  window.URL.revokeObjectURL(url);
+                                } catch (err) {
+                                  window.open(videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url, "_blank");
+                                }
+                              }}
+                            >
+                              <Download size={16} />
+                            </button>
+                          </div>
+
+                          {/* Bottom Gradient & Text (Visible on Hover) */}
+                          <div className="absolute bottom-0 left-0 right-0 h-1/2 bg-gradient-to-t from-black/80 via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-5">
+                            <div className="flex items-center gap-3 mb-3">
+                              <div className="w-6 h-6 rounded-full border-2 border-white flex items-center justify-center shrink-0">
+                                <Play size={10} className="text-white ml-0.5" fill="currentColor" />
+                              </div>
+                              <span className="text-white font-semibold text-[15px] truncate">
+                                Generated Video.mp4
+                              </span>
+                            </div>
+                            {/* Progress Bar */}
+                            <div className="w-full h-[2px] bg-white/30 overflow-hidden">
+                              <div
+                                className="h-full bg-white transition-all duration-100 ease-linear"
+                                style={{ width: `${previewProgress}%` }}
+                              ></div>
+                            </div>
+                          </div>
+                        </div>
+                      </motion.div>
+                    </div>
+                  )
+                ) : (
+                  <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="max-w-5xl mx-auto w-full py-8 px-4 sm:px-6">
+                    <ResultsView
+                      scenePlan={scenePlan}
+                      prompts={prompts}
+                      projectImages={projectImages}
+                      onReset={() => router.push("/")}
+                    />
+                  </motion.div>
+                )}
+              </div>
+            </div>
           ) : (videoStatus?.status === 'COMPLETED' || videoStatus?.status === 'PARTIAL_FAILURE' || videoStatus?.status === 'FAILED') ? (
             prompts && prompts.prompts && prompts.prompts.length > 0 ? (
               <div className="max-w-5xl mx-auto w-full py-8 px-4 sm:px-6 flex flex-col gap-6">
@@ -249,10 +317,11 @@ export default function ProjectDetailsPage() {
                   </button>
                 </div>
 
-                {/* ResultsView with Scene Plan & Prompts */}
+                {/* ResultsView with Scene Plan, Prompts & Images */}
                 <ResultsView
                   scenePlan={scenePlan}
                   prompts={prompts}
+                  projectImages={projectImages}
                   onReset={() => router.push("/")}
                 />
               </div>
@@ -325,7 +394,12 @@ export default function ProjectDetailsPage() {
                       animate={{ opacity: 1, y: 0 }}
                       className="w-full mt-8 text-left"
                     >
-                      <ResultsView scenePlan={scenePlan} prompts={prompts} onReset={() => router.push("/")} />
+                      <ResultsView
+                        scenePlan={scenePlan}
+                        prompts={prompts}
+                        projectImages={projectImages}
+                        onReset={() => router.push("/")}
+                      />
                     </motion.div>
                   )}
                 </div>

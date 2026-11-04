@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
@@ -31,6 +31,7 @@ class ReferenceAsset(BaseModel):
     associated_entity_id: Optional[str] = None
     source: SpecSource = SpecSource.UNKNOWN
 
+
 class SourcedField(BaseModel):
     value: Any
     source: SpecSource
@@ -49,6 +50,7 @@ class CharacterSpec(BaseModel):
     accessories: Optional[str] = None
     source: SpecSource = SpecSource.UNKNOWN
 
+
 class LocationSpec(BaseModel):
     id: str
     name: str
@@ -60,6 +62,7 @@ class LocationSpec(BaseModel):
     weather: Optional[str] = None
     atmosphere: Optional[str] = None
     source: SpecSource = SpecSource.UNKNOWN
+
 
 class ProductSpec(BaseModel):
     id: str
@@ -74,6 +77,7 @@ class ProductSpec(BaseModel):
     reference_asset_ids: List[str] = []
     source: SpecSource = SpecSource.UNKNOWN
 
+
 class ActionSpec(BaseModel):
     id: str
     actor_id: Optional[str] = None
@@ -82,6 +86,7 @@ class ActionSpec(BaseModel):
     sequence_order: Optional[int] = None
     required: bool = True
     source: SpecSource = SpecSource.UNKNOWN
+
 
 class CameraSpec(BaseModel):
     camera_style: Optional[str] = None
@@ -92,6 +97,7 @@ class CameraSpec(BaseModel):
     depth_of_field: Optional[str] = None
     source: SpecSource = SpecSource.UNKNOWN
 
+
 class LightingSpec(BaseModel):
     lighting_style: Optional[str] = None
     light_direction: Optional[str] = None
@@ -100,11 +106,13 @@ class LightingSpec(BaseModel):
     mood: Optional[str] = None
     source: SpecSource = SpecSource.UNKNOWN
 
+
 class CompositionSpec(BaseModel):
     framing_requirements: Optional[str] = None
     subject_placement: Optional[str] = None
     symmetry: Optional[str] = None
     source: SpecSource = SpecSource.UNKNOWN
+
 
 class VisualStyleSpec(BaseModel):
     visual_style: Optional[str] = None
@@ -114,11 +122,13 @@ class VisualStyleSpec(BaseModel):
     atmosphere: Optional[str] = None
     source: SpecSource = SpecSource.UNKNOWN
 
+
 class DialogueSpec(BaseModel):
     speaker_id: str
     text: str
     delivery_style: Optional[str] = None
     source: SpecSource = SpecSource.UNKNOWN
+
 
 class AudioSpec(BaseModel):
     music: Optional[str] = None
@@ -128,12 +138,27 @@ class AudioSpec(BaseModel):
     dialogue: List[DialogueSpec] = []
     source: SpecSource = SpecSource.UNKNOWN
 
+
 class OutputRequirements(BaseModel):
+    @field_validator("duration_seconds", mode="before")
+    @classmethod
+    def sanitize_duration_seconds(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, (int, float)):
+            return int(v)
+        if isinstance(v, str):
+            import re
+            m = re.search(r"(\d+)", v)
+            if m:
+                return int(m.group(1))
+        return None
     duration_seconds: Optional[int] = None
     aspect_ratio: Optional[str] = None
     orientation: Optional[str] = None
     resolution: Optional[str] = None
     source: SpecSource = SpecSource.UNKNOWN
+
 
 class ContinuityBible(BaseModel):
     characters: List[CharacterSpec] = []
@@ -156,6 +181,7 @@ class ConstraintSpec(BaseModel):
     description: str
     type: str = "HARD_CONSTRAINT"  # HARD_CONSTRAINT or PREFERENCE
     source: SpecSource = SpecSource.UNKNOWN
+
 
 class VideoSpecification(BaseModel):
     project_id: str
@@ -184,3 +210,50 @@ class VideoSpecification(BaseModel):
     
     status: SpecStatus = SpecStatus.DRAFT
     version: int = 1
+
+    @field_validator("output_requirements", mode="before")
+    @classmethod
+    def sanitize_output_requirements(cls, v: Any) -> Any:
+        """Defensively handles malformed LLM outputs (e.g. XML tags, raw strings, None)."""
+        if isinstance(v, OutputRequirements):
+            return v
+        if isinstance(v, dict):
+            return v
+        if isinstance(v, str):
+            import re
+            extracted: Dict[str, Any] = {}
+            dur_match = re.search(r'duration(?:_seconds)?["\':=\s>]+(\d+)', v, re.IGNORECASE)
+            if dur_match:
+                extracted["duration_seconds"] = int(dur_match.group(1))
+
+            aspect_match = re.search(r'aspect(?:_ratio)?["\':=\s>]+(["\']?(\d+:\d+)["\']?)', v, re.IGNORECASE)
+            if aspect_match:
+                extracted["aspect_ratio"] = aspect_match.group(2)
+
+            if v.strip().startswith("{") and v.strip().endswith("}"):
+                try:
+                    import json
+                    parsed = json.loads(v)
+                    if isinstance(parsed, dict):
+                        return parsed
+                except Exception:
+                    pass
+
+            return extracted
+        if v is None:
+            return {}
+        return v
+
+    @field_validator("camera", "lighting", "composition", "visual_style", "audio", "continuity_bible", mode="before")
+    @classmethod
+    def sanitize_nested_spec_objects(cls, v: Any) -> Any:
+        if v is None or isinstance(v, str):
+            return {}
+        return v
+
+    @field_validator("characters", "locations", "products", "actions", "constraints", "reference_assets", "unresolved_items", mode="before")
+    @classmethod
+    def sanitize_list_fields(cls, v: Any) -> Any:
+        if v is None or isinstance(v, str):
+            return []
+        return v

@@ -1,7 +1,11 @@
 import React, { useState, useRef, useEffect } from "react";
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Maximize, Repeat, Download, Wrench, Sparkles, X, Copy, Check } from "lucide-react";
+import { 
+  Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, Maximize, Repeat, 
+  Download, Wrench, Sparkles, X, Copy, Check, Image as ImageIcon, ZoomIn, ExternalLink 
+} from "lucide-react";
 
-import type { GeneratedPrompt } from "@/lib/types";
+import type { GeneratedPrompt, ProjectImagesResponse, ShotImageAsset } from "@/lib/types";
+import { resolveImageUrl } from "@/lib/api/client";
 
 function formatTime(seconds: number): string {
   if (isNaN(seconds) || seconds <= 0) return "00:00:00";
@@ -14,11 +18,13 @@ function formatTime(seconds: number): string {
 export function FinalVideoView({ 
   videoUrl, 
   prompts = [], 
-  totalDuration 
+  totalDuration,
+  projectImages,
 }: { 
   videoUrl: string; 
   prompts?: GeneratedPrompt[]; 
   totalDuration?: number; 
+  projectImages?: ProjectImagesResponse | null;
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -26,6 +32,27 @@ export function FinalVideoView({
   const videoRef = useRef<HTMLVideoElement>(null);
   const [progress, setProgress] = useState(0);
   const [currentTime, setCurrentTime] = useState("00:00:00");
+  const [activeLightboxImage, setActiveLightboxImage] = useState<{
+    url: string;
+    label: string;
+    role: string;
+    reused?: boolean;
+  } | null>(null);
+
+  const getRoleBadgeStyle = (role: string) => {
+    switch (role?.toUpperCase()) {
+      case "CHARACTER":
+        return "bg-pink-500/15 text-pink-300 border-pink-500/30";
+      case "PRODUCT":
+        return "bg-amber-500/15 text-amber-300 border-amber-500/30";
+      case "ENVIRONMENT":
+        return "bg-emerald-500/15 text-emerald-300 border-emerald-500/30";
+      case "ACTION_KEYFRAME":
+        return "bg-blue-500/15 text-blue-300 border-blue-500/30";
+      default:
+        return "bg-purple-500/15 text-purple-300 border-purple-500/30";
+    }
+  };
 
   const promptsDuration = prompts.reduce((sum, p) => sum + (p.duration_seconds || 0), 0);
   const initialDuration = totalDuration && totalDuration > 0 ? totalDuration : (promptsDuration > 0 ? promptsDuration : 0);
@@ -427,10 +454,10 @@ export function FinalVideoView({
               if (isFixPanelOpen) setIsFixPanelOpen(false);
             }}
             className="flex items-center gap-2 bg-gray-900/90 hover:bg-gray-800 hover:border-purple-500/50 px-3.5 py-2.5 rounded-xl border border-gray-700 text-purple-300 transition-all shadow-[0_0_15px_rgba(168,85,247,0.15)] hover:shadow-[0_0_20px_rgba(168,85,247,0.3)] hover:scale-105 cursor-pointer backdrop-blur-md font-medium text-xs"
-            title="View Generated Prompts"
+            title="View Generated Prompts & Visual Assets"
           >
             <Sparkles size={15} className="text-purple-400" />
-            <span>Prompts ({prompts.length})</span>
+            <span>Prompts & Assets ({prompts.length})</span>
           </button>
         )}
 
@@ -548,13 +575,18 @@ export function FinalVideoView({
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white flex items-center gap-2">
-                    Generated Video Prompts
+                    Generated Prompts & Visual Assets
                     <span className="text-xs px-2.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 font-normal border border-purple-500/30">
                       {prompts.length} Shots
                     </span>
+                    {projectImages?.total_images ? (
+                      <span className="text-xs px-2.5 py-0.5 rounded-full bg-blue-500/15 text-blue-300 font-normal border border-blue-500/30">
+                        {projectImages.total_images} Gemini Images
+                      </span>
+                    ) : null}
                   </h3>
                   <p className="text-xs text-gray-400">
-                    Total Runtime: {effectiveDuration.toFixed(1)}s · Cinematic directives & camera parameters
+                    Total Runtime: {effectiveDuration.toFixed(1)}s · Cinematic directives & conditioning reference images
                   </p>
                 </div>
               </div>
@@ -585,6 +617,58 @@ export function FinalVideoView({
 
             {/* Modal Scrollable Body */}
             <div className="flex-1 overflow-y-auto p-6 space-y-4">
+              {/* Project Master Visual Anchors (Global Reusable Entities) */}
+              {projectImages?.master_assets && Object.keys(projectImages.master_assets).length > 0 && (
+                <div className="p-4 rounded-xl bg-gradient-to-r from-amber-500/10 to-purple-500/10 border border-amber-500/20 flex flex-col gap-3 mb-2">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-semibold text-amber-300">
+                      <Sparkles size={14} className="text-amber-400" />
+                      <span>Project Master Visual Anchors (Gemini Generated)</span>
+                    </div>
+                    <span className="text-[11px] text-gray-400">
+                      Locked entities reused across scenes for 100% visual consistency
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                    {Object.entries(projectImages.master_assets).map(([assetId, path]) => {
+                      const fullUrl = resolveImageUrl(path);
+                      const isChar = assetId.toLowerCase().includes("char");
+                      const roleLabel = isChar ? "CHARACTER" : "PRODUCT";
+                      return (
+                        <div
+                          key={assetId}
+                          onClick={() => setActiveLightboxImage({
+                            url: fullUrl,
+                            label: assetId,
+                            role: roleLabel,
+                            reused: false,
+                          })}
+                          className="group relative aspect-video rounded-lg overflow-hidden bg-black/60 border border-amber-500/30 hover:border-amber-400 cursor-pointer transition-all"
+                        >
+                          <img
+                            src={fullUrl}
+                            alt={assetId}
+                            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent opacity-75 group-hover:opacity-90" />
+                          <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30 text-white text-[10px] font-medium gap-1">
+                            <ZoomIn size={12} /> Inspect
+                          </div>
+                          <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between text-[9px]">
+                            <span className="px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-200 border border-amber-500/30 font-semibold truncate">
+                              {roleLabel}
+                            </span>
+                            <span className="text-gray-300 truncate max-w-[80px]">
+                              {assetId}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {prompts.map((prompt, idx) => {
                 let fullPromptText = prompt.prompt_text;
                 if (prompt.negative_constraints) {
@@ -595,6 +679,11 @@ export function FinalVideoView({
                 }
 
                 const isCopied = copiedIndex === idx;
+
+                // Match shot images
+                const shotImages: ShotImageAsset[] = projectImages?.shots?.find(
+                  (s) => s.shot_id === prompt.shot_id || (s.sequence_number !== undefined && s.sequence_number === (prompt.sequence_number || idx + 1))
+                )?.images || [];
 
                 return (
                   <div
@@ -638,6 +727,54 @@ export function FinalVideoView({
                       </p>
                     </div>
 
+                    {/* Shot Reference Images (Gemini Generated) */}
+                    {shotImages.length > 0 && (
+                      <div className="pt-2 border-t border-gray-800/60 flex flex-col gap-2">
+                        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-gray-300">
+                          <ImageIcon size={13} className="text-purple-400" />
+                          <span>Veo Condition Reference Images ({shotImages.length}):</span>
+                        </div>
+                        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5">
+                          {shotImages.map((img, imgIdx) => {
+                            const fullUrl = resolveImageUrl(img.path || img.url);
+                            return (
+                              <div
+                                key={img.asset_id || imgIdx}
+                                onClick={() => setActiveLightboxImage({
+                                  url: fullUrl,
+                                  label: img.asset_id,
+                                  role: img.role,
+                                  reused: img.reused,
+                                })}
+                                className="group relative aspect-video rounded-lg overflow-hidden bg-black/50 border border-gray-800 hover:border-purple-500/60 cursor-pointer transition-all"
+                              >
+                                <img
+                                  src={fullUrl}
+                                  alt={img.asset_id}
+                                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                  loading="lazy"
+                                />
+                                <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent opacity-70 group-hover:opacity-90" />
+                                <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity bg-black/30 text-white text-[10px] font-medium gap-1">
+                                  <ZoomIn size={12} /> Inspect
+                                </div>
+                                <div className="absolute bottom-1.5 left-1.5 right-1.5 flex items-center justify-between text-[9px]">
+                                  <span className={`px-1.5 py-0.5 rounded border font-semibold ${getRoleBadgeStyle(img.role)}`}>
+                                    {img.role}
+                                  </span>
+                                  {img.reused && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                      Master
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Negative / Continuity / Tags */}
                     {(prompt.style_modifiers || prompt.motion_parameters) && (
                       <div className="flex flex-wrap gap-2 pt-1">
@@ -656,6 +793,58 @@ export function FinalVideoView({
                   </div>
                 );
               })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Lightbox Modal */}
+      {activeLightboxImage && (
+        <div
+          className="fixed inset-0 z-[60] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 animate-in fade-in duration-200"
+          onClick={() => setActiveLightboxImage(null)}
+        >
+          <div
+            className="relative max-w-4xl max-h-[90vh] bg-[#0d0e15] border border-gray-800 rounded-2xl overflow-hidden flex flex-col shadow-[0_20px_60px_rgba(0,0,0,0.9)]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-800 bg-[#12141e]/90">
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${getRoleBadgeStyle(activeLightboxImage.role)}`}>
+                  {activeLightboxImage.role}
+                </span>
+                <span className="text-xs font-semibold text-white">
+                  {activeLightboxImage.label}
+                </span>
+                {activeLightboxImage.reused && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                    Master Anchor
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <a
+                  href={activeLightboxImage.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800 transition"
+                >
+                  <ExternalLink size={13} /> High-Res
+                </a>
+                <button
+                  onClick={() => setActiveLightboxImage(null)}
+                  className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-gray-800 transition cursor-pointer"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 bg-black flex items-center justify-center p-2 overflow-hidden">
+              <img
+                src={activeLightboxImage.url}
+                alt={activeLightboxImage.label}
+                className="max-h-[75vh] w-auto object-contain rounded-lg shadow-lg"
+              />
             </div>
           </div>
         </div>

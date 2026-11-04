@@ -10,6 +10,7 @@ from app.graph.nodes.re_analyze import re_analyze
 from app.graph.nodes.build_video_spec import build_video_spec
 from app.graph.nodes.generate_scenes_and_prompts import generate_scenes_and_prompts
 from app.graph.nodes.review_prompts import review_prompts
+from app.graph.nodes.generate_images import generate_images
 from app.graph.nodes.generate_videos import generate_videos
 from app.graph.routing import route_after_analysis
 
@@ -37,6 +38,8 @@ ALLOWED_CHECKPOINT_TYPES = [
     ("app.schemas.generated_prompt", "PromptSet"),
 
     # app/schemas/generation.py
+    ("app.schemas.generation", "VisualAssetRole"),
+    ("app.schemas.generation", "ShotImageAssetPlan"),
     ("app.schemas.generation", "GeneratedShotPlan"),
     ("app.schemas.generation", "GeneratedScenePlan"),
     ("app.schemas.generation", "GeneratedPromptItem"),
@@ -100,6 +103,7 @@ def build_graph(memory=None):
     workflow.add_node("build_video_spec", build_video_spec)       # 1 LLM call
     workflow.add_node("generate", generate_scenes_and_prompts)    # 1 LLM call (scenes + prompts combined)
     workflow.add_node("review_prompts", review_prompts)            # Deterministic QA + targeted patch
+    workflow.add_node("generate_images", generate_images)
     workflow.add_node("generate_videos", generate_videos)          # Trigger async video generation
 
     # Edges
@@ -132,7 +136,8 @@ def build_graph(memory=None):
     # Generation: spec → combined scene+prompt generation → review → generate_videos → END
     workflow.add_edge("build_video_spec", "generate")
     workflow.add_edge("generate", "review_prompts")
-    workflow.add_edge("review_prompts", "generate_videos")
+    workflow.add_edge("review_prompts", "generate_images")
+    workflow.add_edge("generate_images", "generate_videos")
     workflow.add_edge("generate_videos", END)
 
     if memory:

@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     veo_negative_prompt_mode: Literal["drop", "append"] = Field("drop", validation_alias="VEO_NEGATIVE_PROMPT_MODE")
     veo_max_prompt_tokens: int = Field(1000, validation_alias="VEO_MAX_PROMPT_TOKENS")
 
+    # Gemini Image Generation Config
+    gemini_image_model: str = Field("gemini-3.1-flash-image", validation_alias="GEMINI_IMAGE_MODEL")
+    gemini_image_concurrency_limit: int = Field(2, validation_alias="GEMINI_IMAGE_CONCURRENCY_LIMIT")
+    image_output_dir: str = Field("static/generated_images", validation_alias="IMAGE_OUTPUT_DIR")
+    gemini_image_size: str = Field("1K", validation_alias="GEMINI_IMAGE_SIZE")
+
     # Cost / safety guards (apply to real providers only, never to the mock)
     video_job_max_wait_seconds: int = Field(900, validation_alias="VIDEO_JOB_MAX_WAIT_SECONDS")
     video_status_max_consecutive_errors: int = Field(20, validation_alias="VIDEO_STATUS_MAX_CONSECUTIVE_ERRORS")

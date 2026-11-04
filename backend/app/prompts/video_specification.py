@@ -112,7 +112,9 @@ Non-critical open items go in `unresolved_items` with `blocking: false`.
 - Missing mandatory output requirements and open CRITICAL gaps are in `unresolved_items` as blocking.
 
 =========================================
-OUTPUT FORMAT
+OUTPUT FORMAT & SCHEMA REQUIREMENTS (CRITICAL)
 =========================================
 Return a valid JSON object matching the requested schema. Ensure all arrays and nested objects are properly formatted.
+- 'output_requirements' MUST be a JSON object with numeric integer 'duration_seconds' (e.g. {{"duration_seconds": 8, "aspect_ratio": "16:9"}}).
+- Under NO circumstances output raw strings, XML tags, or <parameter> snippets for 'output_requirements' or any other field.
 """

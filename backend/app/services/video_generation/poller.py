@@ -98,13 +98,36 @@ async def _handle_failed_job(job, result: dict, client) -> None:
                 cost = estimate_clip_cost_usd(prompt.duration_seconds, getattr(settings, "veo_resolution", "720p"), model=getattr(settings, "veo_model", ""))
                 logger.info(f"Retrying job {job.job_id} at estimated cost: ${cost:.2f}")
                 
-            # 2. Resubmit
+            # 2. Resubmit with reference assets
+            shot_manifest = state.get("shot_image_manifest") or {}
+            shot_id_val = getattr(prompt, "shot_id", getattr(job, "shot_id", ""))
+            shot_items = shot_manifest.get(shot_id_val) or []
+            structured_assets = [
+                {
+                    "path": item["path"],
+                    "role": item.get("role", "ENVIRONMENT"),
+                    "asset_id": item.get("asset_id", ""),
+                    "reused": item.get("reused", False),
+                }
+                for item in shot_items if item.get("path")
+            ][:3]
+
+            # Defensive Fallback: If error was related to reference image incompatibility,
+            # drop the references on retry to guarantee video generation without getting permanently stuck.
+            err_str = str(error_msg).lower()
+            if any(term in err_str for term in ["mix of references", "reference to video", "reference image", "unsupported reference"]):
+                logger.warning(
+                    f"Job {job.job_id} encountered reference incompatibility ({error_msg}). "
+                    f"Falling back to text-only mode on retry {new_count} to guarantee successful video generation."
+                )
+                structured_assets = None
+
             ext_job_id = await client.submit_job(
                 prompt_text=prompt.prompt_text,
                 duration_seconds=prompt.duration_seconds,
                 aspect_ratio=spec.output_requirements.aspect_ratio or "16:9",
                 negative_prompt=prompt.negative_constraints,
-                # omitting reference_image_url for simplicity in retry
+                reference_assets=structured_assets if structured_assets else None,
             )
             
             repo.update_job_status(

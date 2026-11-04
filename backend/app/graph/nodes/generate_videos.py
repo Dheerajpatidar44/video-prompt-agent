@@ -101,6 +101,12 @@ async def generate_videos(state: AgentState) -> AgentState:
                         ref_url = path
                         break
 
+                shot_manifest = state.get("shot_image_manifest") or {}
+                shot_items = shot_manifest.get(prompt.shot_id) or []
+                ref_urls = [item["path"] for item in shot_items if item.get("path")]
+                if ref_urls:
+                    ref_url = ref_urls[0]
+
                 if not ref_url:
                     ref_dict = state.get("reference_images") or {}
                     chars = ref_dict.get("character") or []
@@ -117,6 +123,8 @@ async def generate_videos(state: AgentState) -> AgentState:
                     aspect_ratio=spec.output_requirements.aspect_ratio or "16:9",
                     negative_prompt=prompt.negative_constraints,
                     reference_image_url=ref_url,
+                    reference_image_urls=ref_urls if 'ref_urls' in locals() and ref_urls else ([ref_url] if ref_url else None),
+                    reference_assets=shot_items[:3] if shot_items else None,
                 )
                 
                 # Update DB

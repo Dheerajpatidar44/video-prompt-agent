@@ -64,3 +64,12 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix="/api/v1")
+
+# Mount static directory for serving generated images and assets
+import os
+from fastapi.staticfiles import StaticFiles
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+static_dir = os.path.join(BASE_DIR, "static")
+os.makedirs(os.path.join(static_dir, "generated_images"), exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")

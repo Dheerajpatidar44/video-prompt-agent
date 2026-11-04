@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { ApiClient } from "@/lib/api/client";
-import type { AgentStatus, Question, MasterScenePlan, PromptSet } from "@/lib/types";
+import type { AgentStatus, Question, MasterScenePlan, PromptSet, ProjectImagesResponse } from "@/lib/types";
 
 export interface VideoAgentState {
   status: AgentStatus;
@@ -18,6 +18,7 @@ export interface VideoAgentState {
   completedShots?: number;
   totalShots?: number;
   isStitching?: boolean;
+  projectImages?: ProjectImagesResponse | null;
 }
 
 export function useVideoAgent() {
@@ -37,6 +38,7 @@ export function useVideoAgent() {
     completedShots: 0,
     totalShots: 0,
     isStitching: false,
+    projectImages: null,
   });
 
   const setPartial = (partial: Partial<VideoAgentState>) =>
@@ -105,15 +107,18 @@ export function useVideoAgent() {
             const isStitching = (vData.completed_shots > 0 && vData.completed_shots === vData.total_shots && !vData.final_video_url) || vData.status === "STITCHING";
 
             if (vData.final_video_url) {
+              const imgData = await ApiClient.getProjectImages(threadId).catch(() => null);
               setPartial({
                 videoStatus: vData.status,
                 finalVideoUrl: vData.final_video_url,
                 completedShots: vData.completed_shots,
                 totalShots: vData.total_shots,
                 isStitching: false,
+                ...(imgData && { projectImages: imgData }),
               });
             } else if (vData.status === "COMPLETED" || vData.status === "PARTIAL_FAILURE") {
               const fallbackUrl = vData.jobs?.find((j: any) => j.status === "COMPLETED")?.video_url;
+              const imgData = await ApiClient.getProjectImages(threadId).catch(() => null);
               if (fallbackUrl) {
                 setPartial({
                   videoStatus: vData.status,
@@ -121,6 +126,7 @@ export function useVideoAgent() {
                   completedShots: vData.completed_shots,
                   totalShots: vData.total_shots,
                   isStitching: false,
+                  ...(imgData && { projectImages: imgData }),
                 });
               } else if (vData.completed_shots === 0 && vData.failed_shots === vData.total_shots) {
                 // All failed
@@ -169,9 +175,10 @@ export function useVideoAgent() {
       } else if (finalStatus === "COMPLETED" || finalStatus === "GENERATING_VIDEOS") {
         const spData = await ApiClient.getScenePlan(res.thread_id).catch(() => ({ scene_plan: null }));
         const pData = await ApiClient.getPrompts(res.thread_id).catch(() => ({ prompt_set: null, review_report: null }));
+        const imgData = await ApiClient.getProjectImages(res.thread_id).catch(() => null);
         scenePlan = spData.scene_plan;
         prompts = pData.prompt_set;
-        setPartial({ reviewReport: pData.review_report || null });
+        setPartial({ reviewReport: pData.review_report || null, ...(imgData && { projectImages: imgData }) });
       }
 
       setPartial({
@@ -211,9 +218,10 @@ export function useVideoAgent() {
       } else if (finalStatus === "COMPLETED" || finalStatus === "GENERATING_VIDEOS") {
         const spData = await ApiClient.getScenePlan(state.threadId).catch(() => ({ scene_plan: null }));
         const pData = await ApiClient.getPrompts(state.threadId).catch(() => ({ prompt_set: null, review_report: null }));
+        const imgData = await ApiClient.getProjectImages(state.threadId).catch(() => null);
         scenePlan = spData.scene_plan;
         prompts = pData.prompt_set;
-        setPartial({ reviewReport: pData.review_report || null });
+        setPartial({ reviewReport: pData.review_report || null, ...(imgData && { projectImages: imgData }) });
       }
 
       setPartial({
@@ -248,6 +256,7 @@ export function useVideoAgent() {
       isSubmitting: false,
       videoStatus: null,
       finalVideoUrl: null,
+      projectImages: null,
     });
 
   return { state, analyzeScript, submitAnswers, setAnswer, reset };

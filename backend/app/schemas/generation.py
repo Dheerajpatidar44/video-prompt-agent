@@ -1,6 +1,25 @@
 """Combined schema for the generation phase: scenes + prompts in one LLM call."""
-from pydantic import BaseModel
+from enum import Enum
+from pydantic import BaseModel, Field
 from typing import Optional, List
+
+
+class VisualAssetRole(str, Enum):
+    CHARACTER = "CHARACTER"
+    PRODUCT = "PRODUCT"
+    ENVIRONMENT = "ENVIRONMENT"
+    ACTION_KEYFRAME = "ACTION_KEYFRAME"
+    PROP_OR_OBJECT = "PROP_OR_OBJECT"
+
+
+class ShotImageAssetPlan(BaseModel):
+    asset_id: str = Field(description="Unique entity identifier, e.g., 'char_priya', 'prod_earbuds', 'env_office_rain'")
+    role: VisualAssetRole
+    is_master_entity: bool = Field(default=False, description="True if this entity appears across multiple shots")
+    reuse_asset_id: Optional[str] = Field(default=None, description="ID of a previously generated master asset to reuse without calling API")
+    user_reference_category: Optional[str] = Field(default=None, description="'character', 'product', or 'brand' if mapped to user uploads")
+    generation_prompt: Optional[str] = Field(default=None, description="Cinematic prompt for Gemini if fresh generation is needed")
+    aspect_ratio: str = Field(default="16:9")
  
 
 class GeneratedShotPlan(BaseModel):
@@ -48,6 +67,7 @@ class GeneratedPromptItem(BaseModel):
     negative_constraints: Optional[str] = None
     continuity_requirements: List[str] = []
     source_actions: List[str] = []
+    image_assets: List[ShotImageAssetPlan] = Field(default_factory=list)
 
 
 class GenerationResult(BaseModel):

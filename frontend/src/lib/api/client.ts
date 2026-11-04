@@ -1,7 +1,14 @@
-import type { AnalyzeResponse, Question, Answer, VideoSpecification, MasterScenePlan, PromptSet } from '../types';
+import type { AnalyzeResponse, Question, Answer, VideoSpecification, MasterScenePlan, PromptSet, ProjectImagesResponse } from '../types';
 
 // In a real app, this should come from process.env or $env/static/public
 const API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
+
+export function resolveImageUrl(url?: string): string {
+  if (!url) return '';
+  if (url.startsWith('http://') || url.startsWith('https://')) return url;
+  const base = 'http://127.0.0.1:8000';
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+}
 
 export class ApiClient {
   private static async handleResponse<T>(response: Response): Promise<T> {
@@ -97,6 +104,11 @@ export class ApiClient {
 
   static async getPrompts(threadId: string): Promise<{ thread_id: string; prompt_set: PromptSet; status: string; review_report?: any }> {
     const response = await fetch(`${API_BASE_URL}/scripts/${threadId}/prompts`);
+    return this.handleResponse(response);
+  }
+
+  static async getProjectImages(threadId: string): Promise<ProjectImagesResponse> {
+    const response = await fetch(`${API_BASE_URL}/scripts/${threadId}/images`);
     return this.handleResponse(response);
   }
 

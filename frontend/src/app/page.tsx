@@ -118,7 +118,12 @@ export default function HomePage() {
             {showFinalVideo && state.finalVideoUrl && (
               showFullVideo ? (
                 <motion.div key="final_video" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="flex-1 flex flex-col h-full w-full">
-                  <FinalVideoView videoUrl={state.finalVideoUrl} prompts={state.prompts?.prompts || []} totalDuration={state.prompts?.total_duration} />
+                  <FinalVideoView
+                    videoUrl={state.finalVideoUrl}
+                    prompts={state.prompts?.prompts || []}
+                    totalDuration={state.prompts?.total_duration}
+                    projectImages={state.projectImages}
+                  />
                 </motion.div>
               ) : (
                 <motion.div key="preview_video" variants={pageVariants} initial="initial" animate="animate" exit="exit" className="flex-1 flex flex-col items-start justify-start max-w-6xl mx-auto w-full pt-8">

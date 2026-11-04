@@ -20,6 +20,7 @@ class GeneratedPrompt(BaseModel):
     continuity_requirements: List[str] = []
     source_traceability: List[str] = []
     source_actions: List[str] = []
+    image_assets: List[Dict[str, Any]] = Field(default_factory=list)
     status: PromptStatus = PromptStatus.DRAFT
     validation_issues: List[ValidationIssue] = []
 

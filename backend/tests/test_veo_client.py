@@ -87,8 +87,14 @@ async def test_submit_with_reference_image(default_client_kwargs, monkeypatch):
     )
     assert op_name == "models/veo-3.1-lite-generate-001/operations/op_img_test"
     kwargs = mock_genai.models.generate_videos.call_args[1]
-    assert "image" in kwargs
-    assert kwargs["image"] == dummy_img
+    has_ref_image = (
+        ("image" in kwargs and kwargs["image"] == dummy_img)
+        or any(
+            getattr(r, "image", None) == dummy_img
+            for r in getattr(kwargs.get("config"), "reference_images", [])
+        )
+    )
+    assert has_ref_image
 
 
 async def test_submit_with_reference_image_fallback_to_text(default_client_kwargs, monkeypatch):

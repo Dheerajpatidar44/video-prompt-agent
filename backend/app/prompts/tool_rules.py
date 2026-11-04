@@ -25,11 +25,12 @@ Veo remembers nothing between clips, cannot see any image, and generates sound t
 ----------------------------------------------------------
 - Veo 3.1 generates clips of exactly 4, 6 or 8 seconds (8 seconds is the only length at 1080p; this system renders at 720p by default, so 4, 6 and 8 are all usable).
 - Every shot MUST have duration_seconds of 4, 6 or 8 (4s, 6s, or 8s). Never 1, 2, 3, 5, 7, and never above 8. Under NO circumstances output a shot shorter than 4 seconds.
-- Reachable totals: every EVEN total from 4 seconds upward can be built from 4, 6 and 8 second clips. An ODD total (5, 7, 9, 11, 13, 15 ...) cannot be built exactly. Round it UP to the next even number (7 -> 8, 9 -> 10, 15 -> 16) and report that achieved total as total_duration. Never round down and never drop script content to hit a number.
+- Reachable totals: every EVEN total from 4 seconds upward can be built from 4, 6 and 8 second clips. An ODD total (5, 7, 9, 11, 13, 15 ...) cannot be built exactly. Round it UP to the next even number (7 -> 8, 9 -> 10, 15 -> 16). NEVER exceed the target duration budget.
 - Reference splits (prefer FEWER clips, and put clip boundaries on natural beat or scene boundaries):
     4s = 4 | 6s = 6 | 8s = 8 (or 4+4 when two distinct beats need separate clips)
     10s = 6+4 | 12s = 6+6 (or 4+4+4) | 14s = 6+4+4 or 8+6 | 16s = 8+8
     18s = 8+6+4 | 20s = 8+8+4 | 24s = 8+8+8 | 30s = 8+8+8+6
+- HARD CEILING ON SHOT COUNT: Never create more clips than the reference split allows (for 8s target, MAXIMUM 2 clips: 4+4 or 1 clip: 8). If the script contains more beats than allowed clips, you MUST merge them into the allowed clips. Under no circumstances create 3 or 4 clips for an 8-second video.
 - Beat allocation procedure:
     a) List every beat, action and spoken line of the script in order, with the time the script gives it (if any).
     b) A clip never crosses a scene or location change. A hard cut written in the script is a clip boundary.

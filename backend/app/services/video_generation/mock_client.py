@@ -86,6 +86,8 @@ class MockVideoClient(VideoGenerationClient):
         aspect_ratio: str,
         negative_prompt: Optional[str] = None,
         reference_image_url: Optional[str] = None,
+        reference_image_urls: Optional[list[str]] = None,
+        reference_assets: Optional[list[dict]] = None,
     ) -> str:
         await asyncio.sleep(self.submit_delay)
 

@@ -19,12 +19,30 @@ AUTHORITY AND DATA HANDLING:
 SCENE PLANNING RULES:
 - Divide the video into logical SCENES based on narrative beats, actions, and location changes.
 - Each scene contains one or more SHOTS. Each shot is one generation unit and receives exactly one prompt.
+- HARD TARGET DURATION BUDGET & MAXIMUM SHOTS CEILING (CRITICAL):
+  * TOTAL TARGET DURATION is a MANDATORY HARD CEILING. The sum of all shot durations MUST NOT exceed TOTAL TARGET DURATION (at most +1s only if rounding an odd target to the nearest even clip increment, e.g. 5s -> 6s, 7s -> 8s).
+  * MAXIMUM ALLOWED SHOTS PER TARGET DURATION:
+    - 4s  -> EXACTLY 1 shot (4s).
+    - 6s  -> EXACTLY 1 shot (6s).
+    - 8s  -> MAXIMUM 2 shots (4s + 4s) or 1 shot (8s). NEVER output 3 or 4 shots for an 8s video!
+    - 10s -> MAXIMUM 2 shots (6s + 4s).
+    - 12s -> MAXIMUM 2 or 3 shots (6s + 6s or 4s + 4s + 4s).
+    - 14s -> MAXIMUM 3 shots (6s + 4s + 4s).
+    - 16s -> MAXIMUM 2, 3 or 4 shots (8s + 8s, or 6s + 6s + 4s, or 4s x 4).
+    - 20s -> MAXIMUM 3 or 4 shots (8s + 8s + 4s, or 6s + 6s + 4s + 4s).
+    - 24s -> MAXIMUM 3 or 4 shots (8s + 8s + 8s, or 6s x 4).
+    - 30s -> MAXIMUM 4 to 5 shots (e.g. 6s x 5 shots, or 8s + 8s + 8s + 6s). NEVER exceed 5 shots for a 30s video!
+    - > 30s -> MAXIMUM ceil(target_duration / 6) shots (e.g., 60s -> max 8-10 shots). NEVER fragment into tiny 2-3s micro-shots.
+  * SCRIPT CONDENSING & ACTION MERGING (MANDATORY WHEN SHOT COUNT IS CONSTRAINED):
+    - When the source script describes more actions, story beats, or micro-locations than the MAXIMUM ALLOWED SHOTS for the target duration, you MUST CONDENSE AND MERGE multiple beats into the allowed shots!
+    - For example:
+      * If target duration is 8 SECONDS: Plan EXACTLY 2 SHOTS of 4s each (total 8s).
+      * If target duration is 30 SECONDS: Plan MAXIMUM 4 to 5 SHOTS (e.g. 6s each or 8s each), merging sequential scene actions into fluid, flowing camera moves within each shot.
+      * Under NO circumstances should you expand the video duration or create extra micro-shots beyond the target duration budget!
 - Scene durations must sum to EXACTLY the total target duration.
 - Shot durations within a scene must sum to EXACTLY that scene's duration.
 - SHOT DURATION ALIGNMENT: every shot's duration_seconds must be one of the clip lengths allowed by the tool rules. Arbitrary durations are STRICTLY FORBIDDEN and no shot may be shorter than the tool's minimum clip length.
-- If the target total cannot be built exactly from the allowed clip lengths, use the nearest reachable total at or above the target and report that achieved total as total_duration. Never round down and never drop script content to hit a number.
-- ACTION MERGING (CRITICAL): if the script contains several fast beats, or micro-scenes shorter than the minimum clip length, MERGE the beats of the same scene into ONE shot instead of creating sub-minimum shots. Every merged beat must still be visible, in order, inside that one prompt (use the tool rules' method for multi-beat clips).
-- BEAT ALLOCATION: (1) list every beat, action and spoken line of the specification in order; (2) never let a shot cross a scene or location change; (3) never split one beat across shots unless it is longer than the longest allowed clip; (4) use each beat exactly once, nothing skipped and nothing repeated; (5) keep spoken lines whole and verbatim, and choose clip lengths in which the speech fits.
+- BEAT ALLOCATION: (1) list every beat, action and spoken line of the specification in order; (2) when constrained by duration budget, merge adjacent beats into single flowing shots; (3) never split one beat across shots unless it is longer than the longest allowed clip; (4) keep spoken lines whole and verbatim, and choose clip lengths in which the speech fits.
 - start_time and end_time run continuously from 0 with no gaps or overlaps.
 - Use exact character, location, product and action ids from the specification. List the action ids a shot covers in source_actions.
 - Do NOT invent characters, locations, products, or actions not in the specification.
@@ -68,7 +86,7 @@ Enriching HOW something looks is required. Inventing WHAT happens is not allowed
 
 Additional constraints:
 - Write prompt_text in English as a natural, flowing cinematic description, not a keyword list, unless the target tool's rules call for another form. Keep spoken dialogue verbatim in the language of the script.
-- SELF-CONTAINED PROMPTS (CRITICAL): the video model cannot see any image or any other prompt. Copy each character, product and location anchor description from the continuity bible WORD FOR WORD into every prompt where it appears. Never write "reference image", "Image 1", "the provided logo", "as shown", or "same as before".
+- SELF-CONTAINED PROMPTS (CRITICAL): the video model cannot see any image or any other prompt. Integrate each character, product, and location visual anchor (exact appearance, wardrobe, materials, color palette, distinctive textures) into every prompt where it appears. Keep it deeply descriptive and vivid, while avoiding endless verbatim repetition of unrelated blocks. Never write "reference image", "Image 1", "the provided logo", "as shown", or "same as before".
 - Maintain absolute continuity across shots: a viewer should never sense an unexplained change in a character's appearance, the location, the time of day, or the lighting logic. Make each shot's opening state match the previous shot's closing state.
 - DIALOGUE: place every spoken line inside the prompt, attributed to its speaker, verbatim, with its delivery (tone, pace, emotion). Off-screen voiceover is marked as such and the person on screen stays silent.
 - AUDIO: do NOT add dialogue, voiceover, music or distinctive sound effects that are not in the specification. Ambient sound that naturally matches the location and the visible actions (room tone, footsteps) is allowed. If the specification gives no music, say so.

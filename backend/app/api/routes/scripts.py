@@ -330,3 +330,37 @@ async def get_prompts(thread_id: str):
         res["review_report"] = review_report.model_dump() if hasattr(review_report, "model_dump") else review_report
         
     return res
+
+
+@router.get("/{thread_id}/images")
+async def get_project_images(thread_id: str):
+    """Returns all project visual assets: locked master entities and shot-wise images."""
+    state = await _get_state_values(thread_id)
+    manifest = state.get("shot_image_manifest") or {}
+    master_catalog = state.get("master_asset_catalog") or {}
+    prompt_set = state.get("prompt_set")
+
+    shots_data = []
+    if prompt_set and getattr(prompt_set, "prompts", None):
+        for p in prompt_set.prompts:
+            shot_images = manifest.get(p.shot_id) or []
+            shots_data.append({
+                "shot_id": p.shot_id,
+                "sequence_number": p.sequence_number,
+                "prompt_text": p.prompt_text,
+                "images": shot_images,
+            })
+    elif manifest:
+        for shot_id, images in manifest.items():
+            shots_data.append({
+                "shot_id": shot_id,
+                "images": images,
+            })
+
+    return {
+        "thread_id": thread_id,
+        "master_assets": master_catalog,
+        "shots": shots_data,
+        "total_images": sum(len(s.get("images", [])) for s in shots_data),
+        "status": state.get("status"),
+    }

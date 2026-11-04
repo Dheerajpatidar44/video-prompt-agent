@@ -23,35 +23,51 @@ async def build_video_spec(state: AgentState) -> AgentState:
     gaps_json = [g.model_dump() for g in gaps]
     answers_json = [a.model_dump() for a in answers]
     
-    prompt = VIDEO_SPECIFICATION_PROMPT.format(
-        script=original_script,
-        analysis=json.dumps(analysis, indent=2),
-        gaps=json.dumps(gaps_json, indent=2),
-        answers=json.dumps(answers_json, indent=2),
-        output_requirements="None specified by user."
-    )
-    
+    script_precheck = state.get("script_precheck") or {}
+    detected_dur = script_precheck.get("detected_duration_seconds")
+    detected_aspect = script_precheck.get("aspect_ratio_hint")
+
+    req_parts = []
+    if detected_dur:
+        req_parts.append(f"Target Video Duration: {int(detected_dur)} seconds (MANDATORY HARD CEILING - DO NOT EXCEED)")
+    if detected_aspect:
+        req_parts.append(f"Aspect Ratio: {detected_aspect}")
+    req_parts.append("Format in output_requirements: duration_seconds as integer, aspect_ratio as string")
+
+    output_requirements_text = "\n".join(req_parts) if req_parts else "None specified by user."
+
     try:
+        prompt = VIDEO_SPECIFICATION_PROMPT.format(
+            script=original_script,
+            analysis=json.dumps(analysis, indent=2),
+            gaps=json.dumps(gaps_json, indent=2),
+            answers=json.dumps(answers_json, indent=2),
+            output_requirements=output_requirements_text,
+        )
         spec = await llm_service.generate_structured(
             prompt, VideoSpecification,
             operation="build_video_spec",
             thread_id=thread_id,
         )
-    except LLMException as e:
+    except Exception as e:
         logger.error(f"Failed to generate VideoSpecification: {e}")
         return {**state, "status": AgentStatus.ERROR, "error": str(e)}
 
-    # Safe defaults injection (Python — no LLM needed)
-    if spec.output_requirements.duration_seconds is None:
+    # Safe defaults injection & script duration enforcement (Python — no LLM needed)
+    if detected_dur:
+        if spec.output_requirements.duration_seconds != int(detected_dur):
+            logger.info(f"Enforcing explicit script duration: {int(detected_dur)}s (was {spec.output_requirements.duration_seconds})")
+            spec.output_requirements.duration_seconds = int(detected_dur)
+            spec.output_requirements.source = SpecSource.SCRIPT
+    elif spec.output_requirements.duration_seconds is None:
         spec.output_requirements.duration_seconds = settings.default_duration_seconds
         spec.output_requirements.source = SpecSource.SYSTEM_DEFAULT
         logger.info(f"Duration missing. Applying SYSTEM_DEFAULT: {settings.default_duration_seconds}s")
         
     if spec.output_requirements.aspect_ratio is None:
-        spec.output_requirements.aspect_ratio = settings.default_aspect_ratio
-        if spec.output_requirements.source != SpecSource.SYSTEM_DEFAULT:
-            spec.output_requirements.source = SpecSource.SYSTEM_DEFAULT
-        logger.info(f"Aspect ratio missing. Applying SYSTEM_DEFAULT: {settings.default_aspect_ratio}")
+        spec.output_requirements.aspect_ratio = detected_aspect or settings.default_aspect_ratio
+        spec.output_requirements.source = SpecSource.SCRIPT if detected_aspect else SpecSource.SYSTEM_DEFAULT
+        logger.info(f"Aspect ratio assigned: {spec.output_requirements.aspect_ratio}")
 
     # Deterministic Validation & Status Checking
     blocking_gaps = [g for g in gaps if g.status == GapStatus.OPEN and g.importance in (Importance.CRITICAL, Importance.IMPORTANT)]

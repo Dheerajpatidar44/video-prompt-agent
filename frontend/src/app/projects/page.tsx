@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
-import { ApiClient } from "@/lib/api/client";
+import { ApiClient, resolveImageUrl } from "@/lib/api/client";
 import Swal from 'sweetalert2';
 import { Calendar, Trash2, ArrowRight } from "lucide-react";
 import Link from "next/link";
@@ -139,7 +139,7 @@ export default function ProjectsPage() {
                     >
                       <div className="h-44 bg-gradient-to-br from-white/5 to-transparent relative flex items-center justify-center overflow-hidden">
                         {project.thumbnail_url ? (
-                          <img src={project.thumbnail_url} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" alt="Thumbnail" />
+                          <img src={resolveImageUrl(project.thumbnail_url)} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" alt="Thumbnail" />
                         ) : (
                           <div className="absolute inset-0 bg-gradient-to-br from-[#3b82f6]/20 via-[#10141f] to-black opacity-80 flex flex-col items-center justify-center">
                             <div className="w-12 h-12 rounded-full border border-white/10 flex items-center justify-center mb-2 bg-black/50 shadow-[0_0_15px_rgba(59,130,246,0.2)]">

@@ -77,22 +77,22 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
     tool = state.get("selected_tool", "Veo")
     tool_rules = get_tool_rules(tool)
 
-    prompt = GENERATION_PROMPT.format(
-        video_specification=spec.model_dump_json(indent=2),
-        total_duration=target_duration if target_duration is not None else "UNKNOWN",
-        target_tool=tool,
-        tool_specific_rules=tool_rules,
-    )
-    logger.info(f"Final prompt length: {len(prompt)} characters (Tool: {tool})")
-
     try:
+        prompt = GENERATION_PROMPT.format(
+            video_specification=spec.model_dump_json(indent=2),
+            total_duration=target_duration if target_duration is not None else "UNKNOWN",
+            target_tool=tool,
+            tool_specific_rules=tool_rules,
+        )
+        logger.info(f"Final prompt length: {len(prompt)} characters (Tool: {tool})")
+
         result = await llm_service.generate_structured(
             prompt,
             GenerationResult,
             operation="generate_scenes_and_prompts",
             thread_id=thread_id,
         )
-    except LLMException as e:
+    except Exception as e:
         logger.error(f"Failed to generate scenes+prompts: {e}")
         return {**state, "status": AgentStatus.ERROR, "error": str(e)}
 
@@ -100,6 +100,55 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
         error_msg = "LLM returned an empty scene/prompt plan — no scenes or prompts were generated."
         logger.error(error_msg)
         return {**state, "status": AgentStatus.ERROR, "error": error_msg}
+
+    # ---- Deterministic Python Duration & Budget Guard ----
+    if target_duration and target_duration > 0:
+        max_budget_seconds = target_duration if target_duration % 2 == 0 else target_duration + 1
+        current_sum = sum(p.duration_seconds for p in result.prompts)
+
+        if current_sum > max_budget_seconds:
+            logger.warning(
+                f"LLM generated {current_sum}s across {len(result.prompts)} shots, exceeding target duration {target_duration}s. "
+                f"Applying deterministic duration budget guard to condense to <= {max_budget_seconds}s."
+            )
+            accumulated = 0
+            budgeted_prompts = []
+            for p in result.prompts:
+                if accumulated + p.duration_seconds <= max_budget_seconds:
+                    budgeted_prompts.append(p)
+                    accumulated += p.duration_seconds
+                elif accumulated < max_budget_seconds:
+                    rem = max_budget_seconds - accumulated
+                    if rem in (4, 6, 8):
+                        p.duration_seconds = rem
+                        budgeted_prompts.append(p)
+                        accumulated += rem
+                    break
+
+            if budgeted_prompts:
+                result.prompts = budgeted_prompts
+                result.total_duration = accumulated
+
+                budgeted_shot_ids = {p.shot_id for p in budgeted_prompts}
+                filtered_scenes = []
+                cur_time = 0.0
+                for gs in result.scenes:
+                    valid_shots = []
+                    for sh in gs.shots:
+                        if sh.shot_id in budgeted_shot_ids:
+                            matching_p = next((p for p in budgeted_prompts if p.shot_id == sh.shot_id), None)
+                            dur = matching_p.duration_seconds if matching_p else sh.duration_seconds
+                            sh.duration_seconds = dur
+                            sh.start_time = cur_time
+                            sh.end_time = cur_time + dur
+                            cur_time += dur
+                            valid_shots.append(sh)
+                    if valid_shots:
+                        gs.shots = valid_shots
+                        gs.duration_seconds = sum(s.duration_seconds for s in valid_shots)
+                        filtered_scenes.append(gs)
+
+                result.scenes = filtered_scenes
 
     # ---- Deterministic Python post-processing ----
 

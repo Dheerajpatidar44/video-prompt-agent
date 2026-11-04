@@ -89,9 +89,11 @@ class LLMService:
         so we steer the model via an explicit instruction appended to the
         prompt instead — this is compatible with every current model."""
 
-        effective_max_tokens = (
+        # Cap at 20,000 tokens for non-streaming requests to avoid Anthropic SDK 10-minute timeout error (>21,333 tokens)
+        requested_tokens = (
             max_tokens if max_tokens is not None else settings.anthropic_max_tokens
         )
+        effective_max_tokens = min(requested_tokens, 20000)
         schema_json = _schema_json(schema)
 
         # Build tool definition for structured output
@@ -191,9 +193,11 @@ class LLMService:
         max_tokens: int | None = None,
     ) -> T:
         """Single-call structured generation using tool-use, including image URLs for Vision analysis."""
-        effective_max_tokens = (
+        # Cap at 20,000 tokens for non-streaming requests to avoid Anthropic SDK 10-minute timeout error (>21,333 tokens)
+        requested_tokens = (
             max_tokens if max_tokens is not None else settings.anthropic_max_tokens
         )
+        effective_max_tokens = min(requested_tokens, 20000)
         schema_json = _schema_json(schema)
 
         tool_name = "extract_structured_data"

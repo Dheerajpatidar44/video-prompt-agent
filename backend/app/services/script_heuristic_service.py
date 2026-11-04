@@ -270,6 +270,19 @@ class ScriptHeuristicService:
             except ValueError:
                 pass
 
+        # Check explicit "duration: X" or "final video duration: X"
+        if duration is None:
+            explicit_m = re.search(
+                r"(?:final\s+)?(?:video\s+)?(?:duration|length|runtime)\s*[:=-]?\s*(\d{1,2}(?:\.\d+)?)\s*(?:seconds?|secs?|s)?\b",
+                script_text,
+                re.IGNORECASE,
+            )
+            if explicit_m:
+                try:
+                    duration = float(explicit_m.group(1))
+                except ValueError:
+                    pass
+
         # Check timestamp range fallback if explicit duration wasn't matched
         if duration is None:
             ts_matches = ScriptHeuristicService.RE_TIMESTAMP_RANGE.findall(script_text)
