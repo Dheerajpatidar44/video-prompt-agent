@@ -58,15 +58,8 @@ class VeoClient(VideoGenerationClient):
         if client is not None:
             self._client = client
         else:
-            client_kwargs = {
-                "vertexai": True,
-                "api_key": self._api_key,
-            }
-            if self.project:
-                client_kwargs["project"] = self.project
-            if self.location:
-                client_kwargs["location"] = self.location
-            self._client = genai.Client(**client_kwargs)
+            from app.core.google_client import create_genai_client
+            self._client = create_genai_client(location=self.location)
 
     def _normalize_aspect_ratio(self, aspect: str) -> str:
         raw = (aspect or "16:9").strip()

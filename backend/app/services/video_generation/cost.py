@@ -47,3 +47,22 @@ def estimate_clip_cost_usd(duration_seconds: float, resolution: str = "720p", mo
 
 def estimate_project_cost_usd(durations: list[float], resolution: str = "720p", model: Optional[str] = None) -> float:
     return round(sum(estimate_clip_cost_usd(d, resolution, model=model) for d in durations), 4)
+
+
+# LLM pricing per million tokens in USD
+LLM_PRICING = {
+    "claude-sonnet-5-5": {"input": 3.00, "output": 15.00},
+    "claude-sonnet-5": {"input": 3.00, "output": 15.00},
+    "gemini-2.5-flash": {"input": 0.15, "output": 0.60},
+    "gemini-2.5-pro": {"input": 1.25, "output": 5.00},
+    "gemini-1.5-pro": {"input": 1.25, "output": 5.00},
+    "gemini-1.5-flash": {"input": 0.075, "output": 0.30},
+}
+
+
+def estimate_llm_cost_usd(prompt_tokens: int, completion_tokens: int, model: Optional[str] = None) -> float:
+    """Estimates the USD cost of an LLM generation run based on token counts."""
+    m_key = (model or "").lower()
+    match = next((v for k, v in LLM_PRICING.items() if k in m_key), {"input": 0.15, "output": 0.60})
+    cost = (prompt_tokens / 1_000_000 * match["input"]) + (completion_tokens / 1_000_000 * match["output"])
+    return round(cost, 5)

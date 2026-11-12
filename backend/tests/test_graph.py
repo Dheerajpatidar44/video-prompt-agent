@@ -106,7 +106,10 @@ async def test_graph_compiles_and_executes(mock_analyze, mock_build, mock_genera
 
     graph = build_graph()
     
-    initial_state = {"project_id": "test-1"}
+    initial_state = {
+        "project_id": "test-1",
+        "original_script": "A woman drinks coffee in a cafe.",
+    }
     
     # We run it up to the interrupt point (update_state) if it were to ask questions,
     # but initially gaps are empty, so it should route to build_video_spec and finish.

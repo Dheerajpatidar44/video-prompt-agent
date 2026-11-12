@@ -19,11 +19,14 @@ def within_round_limit(current_round: int, max_rounds: int) -> bool:
 def route_after_analysis(state: AgentState) -> str:
     """Route after analyze_script OR re_analyze.
 
+    If an error occurred, halt execution immediately (STOP_ON_ERROR).
     If the node already set status=WAITING_FOR_USER (questions generated),
     go to update_state (which is interrupt_before, so it pauses).
     Otherwise proceed to build spec.
     """
     status = state.get("status")
+    if status == AgentStatus.ERROR or bool(state.get("error")):
+        return "STOP_ON_ERROR"
     if status == AgentStatus.WAITING_FOR_USER:
         return "WAIT_FOR_ANSWERS"
     return "PROCEED"

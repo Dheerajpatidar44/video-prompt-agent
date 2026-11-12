@@ -10,7 +10,7 @@ Executes script-driven visual asset generation:
 """
 import asyncio
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 from app.core.config import settings
 from app.graph.state import AgentState
@@ -42,10 +42,13 @@ async def generate_images(state: AgentState) -> AgentState:
         logger.warning("generate_images: prompt_set is empty, skipping image generation.")
         return state
 
-    # If mock video api is enabled and no google api key is set, mock image generation safely
+    # Check if mock image mode is requested or no API key is available
     has_api_key = bool(settings.google_api_key and settings.google_api_key.get_secret_value())
-    if settings.use_mock_video_api and not has_api_key:
-        logger.info("generate_images: USE_MOCK_VIDEO_API is true and no GOOGLE_API_KEY. Creating structured mock asset manifest.")
+    if settings.use_mock_image_api or not has_api_key:
+        logger.info(
+            f"generate_images: Mock image mode active (use_mock_image_api={settings.use_mock_image_api}, "
+            f"has_api_key={has_api_key}). Creating structured mock asset manifest without calling real Image API."
+        )
         mock_manifest: Dict[str, List[Dict[str, Any]]] = {}
         mock_masters: Dict[str, str] = {}
         for p in prompt_set.prompts:

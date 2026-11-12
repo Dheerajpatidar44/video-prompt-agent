@@ -8,6 +8,16 @@ os.environ["VIDEO_MAX_RETRIES"] = "2"
 os.environ["VIDEO_MAX_ESTIMATED_COST_USD"] = "2.0"
 
 from app.core.config import settings
+from app.llm import reset_llm_service, get_llm_service
+
+
+@pytest.fixture(autouse=True)
+def setup_mock_llm():
+    """Ensure MockLLMService is cleanly initialized for tests and reset afterwards."""
+    reset_llm_service()
+    mock_service = get_llm_service()
+    yield mock_service
+    reset_llm_service()
 
 
 @pytest.fixture(autouse=True)

@@ -1,0 +1,16 @@
+# Video Prompt Agent — Generated Results
+Model: gemini-3.8-flash | Duration: 8.0s | Target: Veo
+
+--- [SHOT 1 of 2] (Duration: 4.0s) ---
+Prompt Text:
+Cinematography: Low-angle medium wide shot, smooth slow downward tilt following subject movement into a locked low composition, shallow depth of field with sharp subject focus and soft diffused architectural background. Subject: Young elegant woman in her late 20s, slender build, hair tied back neatly, wearing tailored minimalist cream trousers and a silk neutral top, moving with gentle graceful posture. Action: She steps through the open doorway across warm polished travertine marble floors, pauses beside a modern minimalist wooden credenza, smoothly slips off her handcrafted minimalist camel-tan Italian leather loafers with subtle gold buckle accents, and positions them neatly together against the credenza base. Context: Luxury penthouse foyer with warm polished travertine marble floors, floor-to-ceiling windows at frame edge showing dusk sky, subtle volumetric dust particles floating in the air. Style & Ambiance: 35mm anamorphic aesthetic, warm golden-hour dusk light streaming across the floor, soft recessed warm ambient lighting, warm earth tones, cream travertine, amber accents, and soft dusk shadows. Audio: Gentle click of loafers tapping on marble floor, faint soft rustle of silk fabric, quiet ambient penthouse room tone, no dialogue, no music.
+
+Negative Constraints: extra people, outdoor footwear, sneakers, abrupt camera jerk, warped feet, distorted shoes, motion blur artifacts, high contrast harsh lighting, subtitles, logos, watermark
+
+
+--- [SHOT 2 of 2] (Duration: 4.0s) ---
+Prompt Text:
+Cinematography: Extreme close-up macro ground-level perspective, locked-off static camera, shallow depth of field, sharp subject focus on the polished gold buckle and fine leather grain with soft diffused marble falloff in the background. Subject: Pair of handcrafted minimalist camel-tan Italian leather loafers with subtle gold buckle accent, resting symmetrically side by side. Action: The shoes remain resting quietly on the polished stone as warm dusk light softly shimmers across the curved metallic surface of the gold buckles, with subtle atmospheric dust motes drifting through the foreground. Context: Luxury penthouse foyer floor, polished warm cream travertine marble with faint specular reflections, blurred base of the modern minimalist wooden credenza in the distant background. Style & Ambiance: 35mm anamorphic aesthetic, warm earth tones, rich amber accents, delicate specular highlights on leather sheen and gold buckle, soft dusk shadows, serene peaceful mood. Audio: Very faint distant city hum, subtle resonant interior penthouse room tone, no dialogue, no music.
+
+Negative Constraints: people, hands, feet entering frame, camera shake, morphing leather, warped buckle, scratches, synthetic texture, chromatic aberration, subtitles, watermark, logo text
+

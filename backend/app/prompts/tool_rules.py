@@ -1,7 +1,7 @@
 """Tool-specific prompt-writing rules (the single place where model behaviour is described).
 
 How the Veo rules were written
-- Facts about Veo 3.1 (clip lengths, 8 s at 1080p, native audio, prompt-size limit, no reference images on
+- Facts about Veo 3.1 (clip lengths, 8 s at 720p, native audio, prompt-size limit, no reference images on
   the variant we use) come from Google's official Veo documentation (Gemini API / Vertex AI).
 - The five-part prompt formula, the camera / audio vocabulary and cinematic motion choreography follow Google Cloud's
   "Ultimate prompting guide for Veo 3.1".

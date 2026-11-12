@@ -1,7 +1,6 @@
-from typing import List
 from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus, Gap, ReAnalysisResult, GapStatus, Importance, QuestionStatus
-from app.llm.claude_client import llm_service, LLMException
+from app.llm import llm_service, LLMException
 from app.prompts.re_analyzer import RE_ANALYZER_PROMPT
 from app.graph.routing import within_round_limit, has_unresolved_priority_gaps
 import logging
@@ -56,7 +55,7 @@ async def re_analyze(state: AgentState) -> AgentState:
         answers=answers_json,
         generate_questions=str(rounds_remaining).lower()
     )
-    
+
     try:
         result = await llm_service.generate_structured(
             prompt, ReAnalysisResult,
@@ -68,8 +67,6 @@ async def re_analyze(state: AgentState) -> AgentState:
         return {**state, "status": AgentStatus.ERROR, "error": str(e)}
 
     # Deterministic post-processing in Python
-    existing_gap_map = {g.id: g for g in gaps}
-    
     processed_gaps = []
     for g in result.gaps:
         if getattr(g, "status", None) is None:

@@ -58,6 +58,14 @@ ALLOWED_CHECKPOINT_TYPES = [
     ("app.schemas.script", "ScriptDocument"),
     ("app.schemas.script", "ScriptAnalysis"),
     ("app.schemas.script", "InitialAnalysisResult"),
+    ("app.schemas.script", "CharacterAnalysisItem"),
+    ("app.schemas.script", "LocationAnalysisItem"),
+    ("app.schemas.script", "ProductAnalysisItem"),
+    ("app.schemas.script", "ActionAnalysisItem"),
+    ("app.schemas.script", "CameraAnalysisItem"),
+    ("app.schemas.script", "LightingAnalysisItem"),
+    ("app.schemas.script", "AudioAnalysisItem"),
+    ("app.schemas.script", "TimingAnalysis"),
 
     # app/schemas/specification.py
     ("app.schemas.specification", "SpecSource"),
@@ -116,7 +124,8 @@ def build_graph(memory=None):
         route_after_analysis,
         {
             "WAIT_FOR_ANSWERS": "update_state",
-            "PROCEED": "build_video_spec"
+            "PROCEED": "build_video_spec",
+            "STOP_ON_ERROR": END,
         }
     )
 
@@ -129,7 +138,8 @@ def build_graph(memory=None):
         route_after_analysis,
         {
             "WAIT_FOR_ANSWERS": "update_state",  # loop back to wait for more answers
-            "PROCEED": "build_video_spec"
+            "PROCEED": "build_video_spec",
+            "STOP_ON_ERROR": END,
         }
     )
 

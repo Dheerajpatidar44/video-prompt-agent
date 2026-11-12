@@ -3,11 +3,12 @@ import logging
 from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus, GapStatus, Importance
 from app.schemas.specification import VideoSpecification, SpecStatus, SpecSource, UnresolvedItem
-from app.llm.claude_client import llm_service, LLMException
+from app.llm import llm_service
 from app.prompts.video_specification import VIDEO_SPECIFICATION_PROMPT
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
 
 async def build_video_spec(state: AgentState) -> AgentState:
     """Build the final VideoSpecification structured object from current state."""

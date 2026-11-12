@@ -9,13 +9,10 @@ from anthropic import AsyncAnthropic
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.llm.base import BaseLLMService, LLMException
 
 T = TypeVar("T", bound=BaseModel)
 logger = logging.getLogger(__name__)
-
-
-class LLMException(Exception):
-    pass
 
 
 @lru_cache(maxsize=None)
@@ -26,7 +23,7 @@ def _schema_json(schema: Type[BaseModel]) -> dict:
     return schema.model_json_schema()
 
 
-class LLMService:
+class ClaudeLLMService(BaseLLMService):
     """Singleton-pattern async Anthropic Claude service.
 
     - One shared AsyncAnthropic client reused across all calls.
@@ -46,19 +43,19 @@ class LLMService:
     def __init__(self):
         self.model_name = settings.anthropic_model
 
-        if LLMService._client is None:
-            LLMService._client = AsyncAnthropic(
+        if ClaudeLLMService._client is None:
+            ClaudeLLMService._client = AsyncAnthropic(
                 api_key=settings.anthropic_api_key,
                 max_retries=3,
                 timeout=300.0
             )
 
-        if LLMService._semaphore is None:
+        if ClaudeLLMService._semaphore is None:
             # How many requests to let run concurrently.
             max_concurrency = getattr(settings, "anthropic_max_concurrency", 3)
-            LLMService._semaphore = asyncio.Semaphore(max_concurrency)
+            ClaudeLLMService._semaphore = asyncio.Semaphore(max_concurrency)
 
-        self.client = LLMService._client
+        self.client = ClaudeLLMService._client
 
     # ------------------------------------------------------------------
     # Cleanup — call once at app shutdown (FastAPI lifespan)
@@ -115,7 +112,7 @@ class LLMService:
         )
 
         t_enqueued = time.perf_counter()
-        async with LLMService._semaphore:
+        async with ClaudeLLMService._semaphore:
             t_call_start = time.perf_counter()
             queue_wait = t_call_start - t_enqueued
             try:
@@ -260,7 +257,7 @@ class LLMService:
         content_blocks.append({"type": "text", "text": prompt_with_instruction})
 
         t_enqueued = time.perf_counter()
-        async with LLMService._semaphore:
+        async with ClaudeLLMService._semaphore:
             t_call_start = time.perf_counter()
             queue_wait = t_call_start - t_enqueued
             try:
@@ -346,5 +343,6 @@ class LLMService:
         return text_block.text
 
 
-# Module-level singleton — import this wherever you need LLM access.
-llm_service = LLMService()
+# Backward compatibility aliases
+LLMService = ClaudeLLMService
+llm_service = ClaudeLLMService()

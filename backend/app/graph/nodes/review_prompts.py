@@ -9,7 +9,7 @@ from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus
 from app.validators.prompt_reviewer import PromptReviewer
 from app.validators.prompt_corrector import apply_corrections
-from app.llm.claude_client import llm_service
+from app.llm import llm_service
 
 logger = logging.getLogger(__name__)
 

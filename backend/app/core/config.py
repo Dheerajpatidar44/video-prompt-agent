@@ -1,18 +1,35 @@
+import os
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, SecretStr
 from typing import Literal
+
+_backend_env = Path(__file__).resolve().parent.parent.parent / ".env"
 
 class Settings(BaseSettings):
     app_name: str = Field("Video Prompt Agent", validation_alias="APP_NAME")
     app_env: str = Field("development", validation_alias="APP_ENV")
     app_host: str = Field("127.0.0.1", validation_alias="APP_HOST")
     app_port: int = Field(8000, validation_alias="APP_PORT")
-    anthropic_api_key: str = Field(..., validation_alias="ANTHROPIC_API_KEY")
-    anthropic_model: str = Field("claude-sonnet-5", validation_alias="ANTHROPIC_MODEL")
-    anthropic_max_tokens: int = Field(2048, validation_alias="ANTHROPIC_MAX_TOKENS")
-    anthropic_temperature: float = Field(0.3, validation_alias="ANTHROPIC_TEMPERATURE")
-    anthropic_max_concurrency: int = Field(3, validation_alias="ANTHROPIC_MAX_CONCURRENCY")
     log_level: str = Field("INFO", validation_alias="LOG_LEVEL") 
+
+    # LLM Provider Selection (gemini | claude)
+    llm_provider: Literal["gemini", "claude"] = Field("gemini", validation_alias="LLM_PROVIDER")
+
+    # Gemini LLM Config
+    gemini_llm_model: str = Field("gemini-2.5-flash", validation_alias="GEMINI_LLM_MODEL")
+    gemini_llm_location: str = Field("global", validation_alias="GEMINI_LLM_LOCATION")
+    gemini_llm_max_output_tokens: int = Field(20000, validation_alias="GEMINI_LLM_MAX_OUTPUT_TOKENS")
+    gemini_llm_temperature: float = Field(0.3, validation_alias="GEMINI_LLM_TEMPERATURE")
+    gemini_llm_concurrency: int = Field(3, validation_alias="GEMINI_LLM_CONCURRENCY")
+    gemini_llm_validation_retries: int = Field(2, validation_alias="GEMINI_LLM_VALIDATION_RETRIES")
+
+    # Anthropic Claude Config (Optional when Gemini is selected)
+    anthropic_api_key: str = Field("", validation_alias="ANTHROPIC_API_KEY")
+    anthropic_model: str = Field("claude-sonnet-5", validation_alias="ANTHROPIC_MODEL")
+    anthropic_max_tokens: int = Field(20000, validation_alias="ANTHROPIC_MAX_TOKENS")
+    anthropic_temperature: float = Field(0.3, validation_alias="ANTHROPIC_TEMPERATURE")
+    anthropic_max_concurrency: int = Field(3, validation_alias="ANTHROPIC_MAX_CONCURRENCY") 
     
     # System Defaults for safe fields
     default_duration_seconds: int = Field(10, validation_alias="DEFAULT_DURATION_SECONDS")
@@ -22,6 +39,9 @@ class Settings(BaseSettings):
     cloudinary_cloud_name: str = Field("default", validation_alias="CLOUDINARY_CLOUD_NAME")
     cloudinary_api_key: str = Field("default", validation_alias="CLOUDINARY_API_KEY")
     cloudinary_api_secret: str = Field("default", validation_alias="CLOUDINARY_API_SECRET")
+
+    # Image Generation Config
+    use_mock_image_api: bool = Field(True, validation_alias="USE_MOCK_IMAGE_API")
 
     # Video Generation Config
     use_mock_video_api: bool = Field(True, validation_alias="USE_MOCK_VIDEO_API")
@@ -53,6 +73,6 @@ class Settings(BaseSettings):
     video_max_total_seconds_per_project: int = Field(40, validation_alias="VIDEO_MAX_TOTAL_SECONDS_PER_PROJECT")
     video_max_estimated_cost_usd: float = Field(5.0, validation_alias="VIDEO_MAX_ESTIMATED_COST_USD")
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=[str(_backend_env), ".env"], env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

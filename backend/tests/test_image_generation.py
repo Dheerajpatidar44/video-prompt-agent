@@ -67,3 +67,40 @@ async def test_generate_images_node_mock_mode():
     assert "shot_1" in manifest
     assert len(manifest["shot_1"]) >= 1
 
+
+@pytest.mark.asyncio
+async def test_generate_images_respects_use_mock_image_api_true_even_with_key():
+    """Verify that when use_mock_image_api=True, NO real image API call is made even if an API key exists."""
+    from pydantic import SecretStr
+    from app.core.config import settings
+
+    with patch.object(settings, "use_mock_image_api", True), \
+         patch.object(settings, "google_api_key", SecretStr("AIzaSyFakeKey123")), \
+         patch("app.graph.nodes.generate_images.get_gemini_image_service") as mock_get_svc:
+
+        prompts = [
+            GeneratedPrompt(
+                prompt_id="p1",
+                scene_id="s1",
+                shot_id="shot_1",
+                sequence_number=1,
+                duration_seconds=4.0,
+                prompt_text="Cinematic shot",
+            )
+        ]
+        prompt_set = PromptSet(prompts=prompts, total_duration=4.0)
+
+        state: AgentState = {
+            "project_id": "test_mock_guard",
+            "prompt_set": prompt_set,
+        }
+
+        result = await generate_images(state)
+        
+        # Real image service MUST NOT be retrieved or invoked!
+        mock_get_svc.assert_not_called()
+        assert "shot_image_manifest" in result
+        assert "shot_1" in result["shot_image_manifest"]
+        assert result["shot_image_manifest"]["shot_1"][0]["path"].startswith("static/mock_")
+
+

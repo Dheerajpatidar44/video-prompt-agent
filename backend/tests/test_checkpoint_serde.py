@@ -35,11 +35,9 @@ async def _run():
     )
     fake_analysis = InitialAnalysisResult(gaps=[fake_gap], questions=[fake_question])
 
-    # Patch the SHARED llm_service singleton — every node imports this same
-    # object, so this one patch covers analyze_script.py's call. No real
-    # network/API call happens; this returns instantly.
-    from app.llm.claude_client import llm_service
-    with patch.object(llm_service, "generate_structured", new=AsyncMock(return_value=fake_analysis)):
+    # Patch the node's llm_service — no real network/API call happens; this returns instantly.
+    from app.graph.nodes import analyze_script
+    with patch.object(analyze_script.llm_service, "generate_structured", new=AsyncMock(return_value=fake_analysis)):
         initial_state = {
             "project_id": "serde-test-doc",
             "original_script": "A test script for serde verification.",

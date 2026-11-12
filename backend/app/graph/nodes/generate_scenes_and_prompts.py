@@ -7,15 +7,13 @@ import logging
 from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus
 from app.schemas.scene_plan import (
-    MasterScenePlan, ScenePlan, ShotPlan, PlanStatus,
-    TransitionType, NarrativeRole, ValidationIssue,
+    MasterScenePlan, ScenePlan, ShotPlan, PlanStatus, NarrativeRole,
 )
 from app.schemas.generated_prompt import (
-    PromptSet, GeneratedPrompt, PromptStatus,
-    ValidationIssue as PromptValidationIssue,
+    PromptSet, GeneratedPrompt,
 )
 from app.schemas.generation import GenerationResult
-from app.llm.claude_client import llm_service, LLMException
+from app.llm import llm_service
 from app.prompts.generation import GENERATION_PROMPT
 from app.prompts.tool_rules import get_tool_rules
 from app.validators.prompt_validation import validate_prompt_set

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Any
 from enum import Enum
 
@@ -17,7 +17,7 @@ class QuestionStatus(str, Enum):
     PENDING = "PENDING"
     ANSWERED = "ANSWERED"
     SKIPPED = "SKIPPED"
-    DISMISSED = "DISMISSED"
+    DISMISSED = "DISMISSED"    
 
 class AnswerType(str, Enum):
     TEXT = "TEXT"
@@ -54,7 +54,7 @@ class Gap(BaseModel):
     description: str
     why_it_matters: str = Field(default="")
     evidence: str
-    current_value: Optional[Any] = None
+    current_value: Optional[str] = None
     expected_information: Optional[str] = None
     confidence: Optional[float] = None
     source_reference: Optional[str] = None
@@ -63,6 +63,13 @@ class Gap(BaseModel):
     related_scene: Optional[str] = None
     inferred_value: Optional[str] = None
     contradiction_details: Optional[str] = None
+
+    @field_validator("current_value", mode="before")
+    @classmethod
+    def _coerce_current_value(cls, v):
+        if v is None:
+            return None
+        return str(v)
 
 class GapDetectionResult(BaseModel):
     gaps: List[Gap] = []

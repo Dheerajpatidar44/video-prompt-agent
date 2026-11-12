@@ -17,6 +17,7 @@ from google import genai
 from google.genai import types
 
 from app.core.config import settings
+from app.core.google_client import create_genai_client
 
 logger = logging.getLogger(__name__)
 
@@ -41,33 +42,8 @@ class GeminiImageService:
         self.output_dir = Path(settings.image_output_dir)
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Check if Vertex AI / Google Cloud Enterprise mode should be used.
-        # When using Google Cloud project with Vertex AI key (AQ...), genai.Client
-        # must be initialized with vertexai=True (matching veo_client.py) so it routes
-        # via Vertex AI rather than being blocked by generativelanguage.googleapis.com.
-        is_vertex = bool(
-            getattr(settings, "google_cloud_project", None)
-            or os.environ.get("GOOGLE_GENAI_USE_ENTERPRISE", "").lower() in ("true", "1")
-            or (self.api_key and self.api_key.startswith("AQ."))
-        )
-
-        if is_vertex:
-            client_kwargs = {
-                "vertexai": True,
-                "api_key": self.api_key,
-            }
-            if getattr(settings, "google_cloud_project", None):
-                client_kwargs["project"] = settings.google_cloud_project
-            # On Vertex AI, gemini-3.1-flash-image is deployed on the "global" endpoint
-            # whereas Veo video generation runs on "us-central1".
-            image_location = os.environ.get("GEMINI_IMAGE_LOCATION") or "global"
-            client_kwargs["location"] = image_location
-            self._client = genai.Client(**client_kwargs)
-        else:
-            self._client = genai.Client(
-                api_key=self.api_key,
-                http_options=types.HttpOptions(api_version="v1"),
-            )
+        image_location = os.environ.get("GEMINI_IMAGE_LOCATION") or "global"
+        self._client = create_genai_client(location=image_location)
 
         self._semaphore = asyncio.Semaphore(settings.gemini_image_concurrency_limit)
 

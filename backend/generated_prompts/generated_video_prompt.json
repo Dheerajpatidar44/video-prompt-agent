@@ -1,0 +1,156 @@
+{
+  "scenes": [
+    {
+      "scene_id": "scene_foyer_arrival",
+      "scene_number": 1,
+      "title": "Evening Arrival in the Penthouse Foyer",
+      "purpose": "Establish the serene luxury lifestyle and intimate evening homecoming routine through tactile, sensory details.",
+      "narrative_role": "ESTABLISHING_AND_FOCUS",
+      "start_time": 0.0,
+      "end_time": 8.0,
+      "duration_seconds": 8.0,
+      "location_id": "loc_penthouse_foyer",
+      "character_ids": [
+        "char_sophia"
+      ],
+      "product_ids": [
+        "prod_designer_shoes"
+      ],
+      "shots": [
+        {
+          "shot_id": "shot_foyer_arrival_01",
+          "shot_number": 1,
+          "scene_id": "scene_foyer_arrival",
+          "start_time": 0.0,
+          "end_time": 4.0,
+          "duration_seconds": 4.0,
+          "purpose": "Introduce Sophia entering the foyer and removing her loafers by the credenza in a fluid, serene gesture.",
+          "subject": "Sophia, an elegant young woman in her late 20s with minimalist smart casual attire, stepping inside and slipping off her shoes.",
+          "action": "Sophia glides past the front doorway onto travertine marble floors, pauses gracefully, slips her feet out of her camel-tan leather loafers, and aligns them neatly beside the wooden credenza.",
+          "framing": "medium wide shot",
+          "camera_angle": "low-angle",
+          "camera_movement": "slow downward tilt following subject motion, settling into a stable low framing",
+          "composition": "leading lines along polished marble tiles toward the credenza on frame right",
+          "lighting": "warm golden-hour dusk light streaming through tall windows balanced by recessed amber ambient ceiling fixtures",
+          "visual_focus": "feet and loafers transitioning from doorway to credenza",
+          "product_focus": "Designer Italian Leather Loafers",
+          "source_actions": [
+            "act_1"
+          ]
+        },
+        {
+          "shot_id": "shot_foyer_arrival_02",
+          "shot_number": 2,
+          "scene_id": "scene_foyer_arrival",
+          "start_time": 4.0,
+          "end_time": 8.0,
+          "duration_seconds": 4.0,
+          "purpose": "Showcase craftsmanship and rich leather texture in an intimate macro still-life shot.",
+          "subject": "Pair of handcrafted camel-tan Italian leather loafers resting on polished travertine marble.",
+          "action": "The leather loafers sit stationary side by side as warm dusk light gently catches the subtle gold buckle hardware, casting soft amber reflections onto the marble.",
+          "framing": "close-up macro",
+          "camera_angle": "low-angle ground level",
+          "camera_movement": "locked-off static with gentle optical drift",
+          "composition": "asymmetrical rule-of-thirds composition centered on gold buckle accent with soft blurred credenza base in background",
+          "lighting": "warm directional dusk light creating specular highlights on gold buckles and warm amber sheen on leather grain",
+          "visual_focus": "gold buckle detail and stitch craftsmanship of camel-tan leather loafers",
+          "product_focus": "Designer Italian Leather Loafers",
+          "source_actions": [
+            "act_2"
+          ]
+        }
+      ]
+    }
+  ],
+  "total_duration": 8.0,
+  "prompts": [
+    {
+      "prompt_id": "prompt_foyer_arrival_01",
+      "scene_id": "scene_foyer_arrival",
+      "shot_id": "shot_foyer_arrival_01",
+      "sequence_number": 1,
+      "duration_seconds": 4.0,
+      "prompt_text": "Cinematography: Low-angle medium wide shot, smooth slow downward tilt following subject movement into a locked low composition, shallow depth of field with sharp subject focus and soft diffused architectural background. Subject: Young elegant woman in her late 20s, slender build, hair tied back neatly, wearing tailored minimalist cream trousers and a silk neutral top, moving with gentle graceful posture. Action: She steps through the open doorway across warm polished travertine marble floors, pauses beside a modern minimalist wooden credenza, smoothly slips off her handcrafted minimalist camel-tan Italian leather loafers with subtle gold buckle accents, and positions them neatly together against the credenza base. Context: Luxury penthouse foyer with warm polished travertine marble floors, floor-to-ceiling windows at frame edge showing dusk sky, subtle volumetric dust particles floating in the air. Style & Ambiance: 35mm anamorphic aesthetic, warm golden-hour dusk light streaming across the floor, soft recessed warm ambient lighting, warm earth tones, cream travertine, amber accents, and soft dusk shadows. Audio: Gentle click of loafers tapping on marble floor, faint soft rustle of silk fabric, quiet ambient penthouse room tone, no dialogue, no music.",
+      "negative_constraints": "extra people, outdoor footwear, sneakers, abrupt camera jerk, warped feet, distorted shoes, motion blur artifacts, high contrast harsh lighting, subtitles, logos, watermark",
+      "continuity_requirements": [
+        "STARTS: Sophia stepping across doorway threshold in camel-tan leather loafers",
+        "ENDS: Loafers resting parallel beside credenza on polished marble floor",
+        "LOCK: Sophia late 20s, minimalist cream smart casual attire",
+        "LOCK: Loafers handcrafted camel-tan Italian leather with gold buckle accent",
+        "LOCK: Location luxury penthouse foyer with polished travertine floors and wooden credenza",
+        "LOCK: Lighting warm dusk golden hour mixed with recessed ceiling amber light"
+      ],
+      "source_actions": [
+        "act_1"
+      ],
+      "image_assets": [
+        {
+          "asset_id": "char_sophia",
+          "role": "CHARACTER",
+          "is_master_entity": true,
+          "reuse_asset_id": null,
+          "user_reference_category": "character",
+          "generation_prompt": "Portrait of Sophia, elegant woman in her late 20s, minimalist smart casual attire, gentle graceful expression, luxury penthouse setting, warm golden-hour dusk light, 35mm anamorphic photography.",
+          "aspect_ratio": "16:9"
+        },
+        {
+          "asset_id": "prod_designer_shoes",
+          "role": "PRODUCT",
+          "is_master_entity": true,
+          "reuse_asset_id": null,
+          "user_reference_category": "product",
+          "generation_prompt": "Commercial product photograph of handcrafted minimalist camel-tan Italian leather loafers with subtle gold buckle accent resting on polished cream travertine marble, warm dusk lighting, macro detail.",
+          "aspect_ratio": "16:9"
+        },
+        {
+          "asset_id": "loc_penthouse_foyer",
+          "role": "ENVIRONMENT",
+          "is_master_entity": true,
+          "reuse_asset_id": null,
+          "user_reference_category": null,
+          "generation_prompt": "Luxury penthouse foyer interior, polished travertine marble floors, modern minimalist wooden credenza, floor-to-ceiling windows with warm golden-hour dusk light, soft amber recessed lights.",
+          "aspect_ratio": "16:9"
+        }
+      ]
+    },
+    {
+      "prompt_id": "prompt_foyer_arrival_02",
+      "scene_id": "scene_foyer_arrival",
+      "shot_id": "shot_foyer_arrival_02",
+      "sequence_number": 2,
+      "duration_seconds": 4.0,
+      "prompt_text": "Cinematography: Extreme close-up macro ground-level perspective, locked-off static camera, shallow depth of field, sharp subject focus on the polished gold buckle and fine leather grain with soft diffused marble falloff in the background. Subject: Pair of handcrafted minimalist camel-tan Italian leather loafers with subtle gold buckle accent, resting symmetrically side by side. Action: The shoes remain resting quietly on the polished stone as warm dusk light softly shimmers across the curved metallic surface of the gold buckles, with subtle atmospheric dust motes drifting through the foreground. Context: Luxury penthouse foyer floor, polished warm cream travertine marble with faint specular reflections, blurred base of the modern minimalist wooden credenza in the distant background. Style & Ambiance: 35mm anamorphic aesthetic, warm earth tones, rich amber accents, delicate specular highlights on leather sheen and gold buckle, soft dusk shadows, serene peaceful mood. Audio: Very faint distant city hum, subtle resonant interior penthouse room tone, no dialogue, no music.",
+      "negative_constraints": "people, hands, feet entering frame, camera shake, morphing leather, warped buckle, scratches, synthetic texture, chromatic aberration, subtitles, watermark, logo text",
+      "continuity_requirements": [
+        "STARTS: Camel-tan loafers resting side by side on polished travertine marble beside credenza",
+        "ENDS: Identical resting state of loafers on marble with warm dusk lighting",
+        "LOCK: Loafers handcrafted camel-tan Italian leather with gold buckle accent",
+        "LOCK: Travertine marble floor with warm amber reflections",
+        "LOCK: Lighting warm dusk golden hour mixed with soft amber ceiling glow"
+      ],
+      "source_actions": [
+        "act_2"
+      ],
+      "image_assets": [
+        {
+          "asset_id": "prod_designer_shoes",
+          "role": "PRODUCT",
+          "is_master_entity": true,
+          "reuse_asset_id": null,
+          "user_reference_category": "product",
+          "generation_prompt": "Macro shot of handcrafted minimalist camel-tan Italian leather loafers with gold buckle detail on polished cream travertine marble, warm dusk sunlight, shallow depth of field.",
+          "aspect_ratio": "16:9"
+        },
+        {
+          "asset_id": "loc_penthouse_foyer",
+          "role": "ENVIRONMENT",
+          "is_master_entity": true,
+          "reuse_asset_id": null,
+          "user_reference_category": null,
+          "generation_prompt": "Low-angle ground-level view of polished travertine marble floor in luxury penthouse foyer with soft amber shadows and base of modern minimalist credenza, warm dusk light.",
+          "aspect_ratio": "16:9"
+        }
+      ]
+    }
+  ]
+}

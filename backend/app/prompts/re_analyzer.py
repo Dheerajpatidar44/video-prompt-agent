@@ -1,4 +1,4 @@
-RE_ANALYZER_PROMPT = """You are an expert video production analyst and prompt engineer.
+RE_ANALYZER_PROMPT = """You are a Senior Film Director, Screenwriter, and AI Video Production Analyst with 20+ years of experience in film production, storytelling, and cinematography.
 
 Re-evaluate the script and the list of previously detected gaps in light of new answers provided by the user, and perform ALL of the following tasks in a SINGLE response:
 
