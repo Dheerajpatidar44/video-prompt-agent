@@ -21,6 +21,16 @@ from app.core.google_client import create_genai_client
 
 logger = logging.getLogger(__name__)
 
+# Injected into every image generation call to prevent multi-panel outputs.
+# The image model interprets sequential-action prompts as a comic strip / storyboard;
+# this directive counteracts that tendency at the API level.
+_ANTI_COLLAGE_SUFFIX = (
+    " Composition rule: single unified photographic frame only. "
+    "Strictly avoid: collage, split screen, multiple panels, comic strip, "
+    "storyboard, grid layout, montage, side-by-side views, subtitles, captions, "
+    "speech bubbles, text overlays, borders between images."
+)
+
 
 class ImageGenerationError(Exception):
     """Raised when image generation fails permanently."""
@@ -149,6 +159,7 @@ class GeminiImageService:
                 all_refs.append(ref_image)
 
             # Load up to 3 reference images safely
+            loaded_refs = 0
             for r in all_refs[:3]:
                 if r is None:
                     continue
@@ -156,10 +167,24 @@ class GeminiImageService:
                     pil_ref = self._load_pil_image(r)
                     if pil_ref:
                         contents.append(pil_ref)
+                        loaded_refs += 1
                 except Exception as load_err:
                     logger.warning(f"Failed to load reference image ({load_err}), skipping.")
 
-            contents.append(prompt)
+            # Build the final prompt text:
+            # 1. If reference images were loaded, prepend a visual-conditioning directive so
+            #    the model preserves the subject's identity / product appearance exactly.
+            # 2. Always append the anti-collage suffix to prevent multi-panel outputs.
+            prompt_parts: list[str] = []
+            if loaded_refs > 0:
+                prompt_parts.append(
+                    "Visual conditioning: strictly preserve the identity, facial features, "
+                    "hairstyle, wardrobe, and exact appearance of the subject shown in the "
+                    "reference image(s). Do not alter or reinterpret their look."
+                )
+            prompt_parts.append(prompt)
+            final_prompt = " ".join(prompt_parts) + _ANTI_COLLAGE_SUFFIX
+            contents.append(final_prompt)
 
             for attempt in range(max_retries + 1):
                 try:

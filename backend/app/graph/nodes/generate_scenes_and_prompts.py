@@ -229,6 +229,7 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
                 sequence_number=gp.sequence_number,
                 duration_seconds=gp.duration_seconds,
                 prompt_text=gp.prompt_text,
+                keyframe_image_prompt=getattr(gp, "keyframe_image_prompt", None),
                 negative_constraints=gp.negative_constraints,
                 continuity_requirements=gp.continuity_requirements,
                 source_traceability=source_traceability,

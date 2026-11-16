@@ -20,6 +20,20 @@ logger = logging.getLogger(__name__)
 
 _job_error_counts: dict[str, int] = {}
 
+# Tracks how many image-regen retries have been spent per job_id.
+_image_regen_counts: dict[str, int] = {}
+
+# Error substrings that indicate Veo rejected the image due to safety or policy
+# (e.g. Code 15236754 - celebrity likeness / usage guidelines).
+_IMAGE_SAFETY_TERMS = (
+    "15236754",
+    "usage guidelines",
+    "violates",
+    "input image",
+    "image violates",
+    "image not supported",
+)
+
 
 async def _process_completed_job(job, result: dict) -> None:
     """Download and store video, then update job to COMPLETED."""
@@ -54,12 +68,15 @@ async def _process_completed_job(job, result: dict) -> None:
             error_message=f"Storage failure: {exc}"
         )
     _job_error_counts.pop(job.job_id, None)
+    _image_regen_counts.pop(job.job_id, None)
 
 
 async def _handle_failed_job(job, result: dict, client) -> None:
     """Handle retries or terminal failure."""
     error_msg = result.get("error", "Unknown provider error")
+    err_str = str(error_msg).lower()
     max_retries = getattr(settings, "video_max_retries", 2)
+    max_img_retries = getattr(settings, "video_image_regen_max_retries", 1)
     
     if result.get("retryable") is False:
         logger.error(
@@ -72,7 +89,36 @@ async def _handle_failed_job(job, result: dict, client) -> None:
             completed_at=datetime.now(UTC)
         )
         _job_error_counts.pop(job.job_id, None)
+        _image_regen_counts.pop(job.job_id, None)
         return
+
+    # Check if failure is due to Veo image-safety policy rejection (e.g. 15236754)
+    is_image_rejection = any(term in err_str for term in _IMAGE_SAFETY_TERMS)
+    img_regen_used = _image_regen_counts.get(job.job_id, 0)
+
+    if is_image_rejection:
+        if img_regen_used < max_img_retries:
+            new_img_count = img_regen_used + 1
+            logger.warning(
+                f"Job {job.job_id} rejected by Veo (image safety/policy error: {error_msg}). "
+                f"Regenerating keyframe image (attempt {new_img_count}/{max_img_retries})."
+            )
+            await _regenerate_image_and_resubmit(job, error_msg, client, new_img_count)
+            return
+        else:
+            logger.error(
+                f"Job {job.job_id} failed again with Veo safety policy error after "
+                f"{img_regen_used} image regeneration attempt(s). Terminal FAILED. Error: {error_msg}"
+            )
+            repo.update_job_status(
+                job.job_id,
+                VideoJobStatus.FAILED,
+                error_message=f"Veo safety policy rejection persisted after {img_regen_used} image regeneration attempt(s): {error_msg}",
+                completed_at=datetime.now(UTC)
+            )
+            _job_error_counts.pop(job.job_id, None)
+            _image_regen_counts.pop(job.job_id, None)
+            return
 
     if job.retry_count < max_retries:
         new_count = job.retry_count + 1
@@ -114,7 +160,6 @@ async def _handle_failed_job(job, result: dict, client) -> None:
 
             # Defensive Fallback: If error was related to reference image incompatibility,
             # drop the references on retry to guarantee video generation without getting permanently stuck.
-            err_str = str(error_msg).lower()
             if any(term in err_str for term in ["mix of references", "reference to video", "reference image", "unsupported reference"]):
                 logger.warning(
                     f"Job {job.job_id} encountered reference incompatibility ({error_msg}). "
@@ -148,6 +193,7 @@ async def _handle_failed_job(job, result: dict, client) -> None:
                 completed_at=datetime.now(UTC),
                 retry_count=new_count
             )
+            _image_regen_counts.pop(job.job_id, None)
     else:
         logger.error(
             f"Job {job.job_id} reached max retries ({max_retries}). Terminal FAILED. Error: {error_msg}"
@@ -158,7 +204,111 @@ async def _handle_failed_job(job, result: dict, client) -> None:
             error_message=error_msg,
             completed_at=datetime.now(UTC)
         )
+        _image_regen_counts.pop(job.job_id, None)
     _job_error_counts.pop(job.job_id, None)
+
+
+async def _regenerate_image_and_resubmit(job, error_msg: str, client, new_img_count: int) -> None:
+    """Regenerate keyframe image for this shot and resubmit to Veo."""
+    _image_regen_counts[job.job_id] = new_img_count
+    try:
+        from app.api.routes.scripts import _get_state_values
+        state = await _get_state_values(job.project_id)
+        prompt_set = state.get("prompt_set")
+        spec = state.get("video_specification")
+
+        prompt = next(
+            (p for p in prompt_set.prompts if p.prompt_id == job.prompt_id), None
+        ) if prompt_set and getattr(prompt_set, "prompts", None) else None
+
+        if not prompt or not spec:
+            raise Exception("Prompt or Spec missing from state — cannot regenerate image.")
+
+        # Determine keyframe image prompt (same field used by generate_images node)
+        raw_kf_prompt = getattr(prompt, "keyframe_image_prompt", None)
+        effective_prompt = (
+            raw_kf_prompt if (raw_kf_prompt and raw_kf_prompt.strip())
+            else prompt.prompt_text
+        )
+
+        # Collect user reference images so the regenerated image
+        # still uses character/product references for visual consistency.
+        user_refs = state.get("reference_images") or {}
+        char_refs = user_refs.get("character") or []
+        prod_refs = user_refs.get("product") or []
+        brand_refs = user_refs.get("brand") or []
+        all_user_refs = (char_refs + prod_refs + brand_refs)[:3]
+
+        from app.services.image_generation.gemini_image_service import get_gemini_image_service
+        image_service = get_gemini_image_service()
+
+        project_id = job.project_id
+        shot_id = getattr(prompt, "shot_id", getattr(job, "shot_id", "unknown"))
+        filename = f"{project_id}_{shot_id}_keyframe_regen{new_img_count}.png"
+
+        logger.info(
+            f"[ImageRegen] Job {job.job_id}: generating fresh keyframe for shot '{shot_id}' "
+            f"(regen #{new_img_count}). Prompt: {effective_prompt[:80]}..."
+        )
+
+        target_aspect = "16:9"
+        if spec and getattr(spec, "output_requirements", None):
+            target_aspect = getattr(spec.output_requirements, "aspect_ratio", None) or "16:9"
+
+        new_image_path = await image_service.generate_image(
+            prompt=effective_prompt,
+            aspect_ratio=target_aspect,
+            ref_images=all_user_refs if all_user_refs else None,
+            custom_filename=filename,
+        )
+
+        if not new_image_path:
+            raise Exception("Image service returned None — fresh keyframe could not be generated.")
+
+        logger.info(
+            f"[ImageRegen] Job {job.job_id}: new keyframe saved at '{new_image_path}'. "
+            "Resubmitting to Veo..."
+        )
+
+        # Build structured_assets with the newly generated image
+        structured_assets = [{
+            "path": new_image_path,
+            "role": "MASTER_KEYFRAME",
+            "asset_id": f"{shot_id}_keyframe_regen{new_img_count}",
+            "reused": False,
+        }]
+
+        ext_job_id = await client.submit_job(
+            prompt_text=prompt.prompt_text,
+            duration_seconds=prompt.duration_seconds,
+            aspect_ratio=target_aspect,
+            negative_prompt=prompt.negative_constraints,
+            reference_assets=structured_assets,
+        )
+
+        repo.update_job_status(
+            job.job_id,
+            VideoJobStatus.SUBMITTED,
+            external_job_id=ext_job_id,
+            error_message=f"[image_regen #{new_img_count}] {error_msg}",
+            submitted_at=datetime.now(UTC),
+        )
+        logger.info(
+            f"[ImageRegen] Job {job.job_id} successfully resubmitted with fresh keyframe -> {ext_job_id}"
+        )
+
+    except Exception as exc:
+        logger.error(
+            f"[ImageRegen] Job {job.job_id}: image regeneration / resubmit failed: {exc}."
+        )
+        repo.update_job_status(
+            job.job_id,
+            VideoJobStatus.FAILED,
+            error_message=f"Image regeneration retry failed: {exc}",
+            completed_at=datetime.now(UTC),
+        )
+        _image_regen_counts.pop(job.job_id, None)
+        _job_error_counts.pop(job.job_id, None)
 
 
 async def _check_and_trigger_stitching(project_id: str) -> None:

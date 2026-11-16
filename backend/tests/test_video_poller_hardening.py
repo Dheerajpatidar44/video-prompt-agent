@@ -187,3 +187,116 @@ async def test_poller_passes_downloader_when_required(fake_repo, monkeypatch):
     assert fake_repo.updates[0][1] == VideoJobStatus.COMPLETED
     assert captured_downloader == client.download_video
 
+
+
+@pytest.mark.asyncio
+async def test_poller_regenerates_image_on_veo_safety_rejection(fake_repo, fake_client, monkeypatch):
+    poller._image_regen_counts.clear()
+    poller._job_error_counts.clear()
+
+    job = VideoJob(
+        job_id="job_safety_1", project_id="p1", prompt_id="pr1", shot_id="s1", sequence_number=1,
+        status=VideoJobStatus.SUBMITTED, external_job_id="ext_safety"
+    )
+    fake_repo.jobs.append(job)
+
+    async def mock_check_status(*a):
+        return {
+            "status": "FAILED",
+            "error": "The input image violates Vertex AI's usage guidelines. [15236754]"
+        }
+
+    fake_client.check_status = mock_check_status
+
+    from unittest.mock import MagicMock
+    fake_prompt = MagicMock()
+    fake_prompt.prompt_id = "pr1"
+    fake_prompt.shot_id = "s1"
+    fake_prompt.keyframe_image_prompt = "Close up of model wearing jacket"
+    fake_prompt.prompt_text = "Close up video of model"
+    fake_prompt.duration_seconds = 4
+    fake_prompt.negative_constraints = None
+
+    fake_spec = MagicMock()
+    fake_spec.output_requirements.aspect_ratio = "16:9"
+
+    fake_state = {
+        "prompt_set": MagicMock(prompts=[fake_prompt]),
+        "video_specification": fake_spec,
+        "reference_images": {"character": ["https://cdn.com/char.png"]},
+    }
+
+    async def fake_get_state(project_id):
+        return fake_state
+
+    import app.api.routes.scripts as scripts
+    monkeypatch.setattr(scripts, "_get_state_values", fake_get_state)
+
+    regen_called = False
+    class FakeImgService:
+        async def generate_image(self, prompt, aspect_ratio, ref_images, custom_filename):
+            nonlocal regen_called
+            regen_called = True
+            return f"static/generated_images/{custom_filename}"
+
+    import app.services.image_generation.gemini_image_service as gis
+    monkeypatch.setattr(gis, "get_gemini_image_service", lambda: FakeImgService())
+
+    submitted_ref_assets = None
+    async def mock_submit(prompt_text, duration_seconds, aspect_ratio, negative_prompt, reference_assets):
+        nonlocal submitted_ref_assets
+        submitted_ref_assets = reference_assets
+        return "ext_regen_resubmit"
+
+    fake_client.submit_job = mock_submit
+
+    await poller.run_poller_loop()
+
+    assert regen_called is True
+    assert submitted_ref_assets is not None
+    assert submitted_ref_assets[0]["path"] == "static/generated_images/p1_s1_keyframe_regen1.png"
+    assert len(fake_repo.updates) == 1
+    assert fake_repo.updates[0][1] == VideoJobStatus.SUBMITTED
+    assert fake_repo.updates[0][2]["external_job_id"] == "ext_regen_resubmit"
+    assert "[image_regen #1]" in fake_repo.updates[0][2]["error_message"]
+    assert poller._image_regen_counts.get("job_safety_1") == 1
+
+
+@pytest.mark.asyncio
+async def test_poller_fails_permanently_when_image_regen_retries_exhausted(fake_repo, fake_client, monkeypatch):
+    poller._image_regen_counts.clear()
+    poller._job_error_counts.clear()
+
+    # Pre-set regen count to max (1)
+    poller._image_regen_counts["job_safety_2"] = 1
+
+    job = VideoJob(
+        job_id="job_safety_2", project_id="p1", prompt_id="pr1", shot_id="s1", sequence_number=1,
+        status=VideoJobStatus.SUBMITTED, external_job_id="ext_safety_2"
+    )
+    fake_repo.jobs.append(job)
+
+    async def mock_check_status(*a):
+        return {
+            "status": "FAILED",
+            "error": "The input image violates Vertex AI's usage guidelines. [15236754]"
+        }
+
+    fake_client.check_status = mock_check_status
+
+    submit_called = False
+    async def mock_submit(*a, **kw):
+        nonlocal submit_called
+        submit_called = True
+        return "new_id"
+
+    fake_client.submit_job = mock_submit
+
+    await poller.run_poller_loop()
+
+    # Should not resubmit again
+    assert submit_called is False
+    assert len(fake_repo.updates) == 1
+    assert fake_repo.updates[0][1] == VideoJobStatus.FAILED
+    assert "persisted after 1 image regeneration attempt" in fake_repo.updates[0][2]["error_message"]
+    assert "job_safety_2" not in poller._image_regen_counts

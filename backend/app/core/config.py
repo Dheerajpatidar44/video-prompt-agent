@@ -73,6 +73,10 @@ class Settings(BaseSettings):
     video_max_total_seconds_per_project: int = Field(40, validation_alias="VIDEO_MAX_TOTAL_SECONDS_PER_PROJECT")
     video_max_estimated_cost_usd: float = Field(5.0, validation_alias="VIDEO_MAX_ESTIMATED_COST_USD")
 
+    # Image-regeneration retry on Veo safety/policy rejection (e.g. error 15236754):
+    # Maximum number of times to regenerate a fresh image and re-submit to Veo per job.
+    video_image_regen_max_retries: int = Field(1, validation_alias="VIDEO_IMAGE_REGEN_MAX_RETRIES")
+
     model_config = SettingsConfigDict(env_file=[str(_backend_env), ".env"], env_file_encoding="utf-8", extra="ignore")
 
 settings = Settings()

@@ -64,6 +64,15 @@ class GeneratedPromptItem(BaseModel):
     sequence_number: int
     duration_seconds: float
     prompt_text: str
+    keyframe_image_prompt: Optional[str] = Field(
+        default=None,
+        description=(
+            "Static photographic description of the OPENING FIRST FRAME (T=0s) of this shot. "
+            "Describes only what is visible at the very first moment: subject appearance, pose, "
+            "placement inside the script environment, and lighting. "
+            "Single unified frame only — no sequential actions, no transitions, no dialogue."
+        ),
+    )
     negative_constraints: Optional[str] = None
     continuity_requirements: List[str] = []
     source_actions: List[str] = []

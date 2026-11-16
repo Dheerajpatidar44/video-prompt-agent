@@ -16,6 +16,7 @@ class GeneratedPrompt(BaseModel):
     sequence_number: int
     duration_seconds: float
     prompt_text: str
+    keyframe_image_prompt: Optional[str] = None
     negative_constraints: Optional[str] = None
     continuity_requirements: List[str] = []
     source_traceability: List[str] = []

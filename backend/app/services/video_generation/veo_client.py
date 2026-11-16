@@ -144,8 +144,7 @@ class VeoClient(VideoGenerationClient):
         if negative_prompt and self.negative_prompt_mode == "append":
             config_kwargs["negative_prompt"] = negative_prompt
 
-        # 5. Process reference images (Ingredients-to-Video mode)
-        # Veo 3.1 supports up to 3 reference images in GenerateVideosConfig
+        # 5. Process reference / keyframe images
         ref_items_to_load = []
         if reference_assets:
             ref_items_to_load = reference_assets[:3]
@@ -154,35 +153,34 @@ class VeoClient(VideoGenerationClient):
         elif reference_image_url:
             ref_items_to_load = [{"path": reference_image_url, "role": "CHARACTER"}]
 
-        loaded_ref_objects = []
         first_frame_image = None
+        additional_ref_objects = []
 
         for item in ref_items_to_load:
             path = item.get("path")
-            role = (item.get("role") or "ENVIRONMENT").upper()
+            role = (item.get("role") or "").upper()
             if path:
                 img_obj = await self._load_reference_image(path)
                 if img_obj:
+                    # The first image (e.g. opening keyframe) becomes the primary I2V starting frame
                     if first_frame_image is None:
                         first_frame_image = img_obj
-                    # In Google Veo 3.1, reference images guide characters, products, objects, and scene keyframes.
-                    # Veo 3.1 architecture strictly requires reference_type="asset". Using "style" triggers:
-                    # 'Reference to video does not support this mix of references.'
-                    ref_type = "asset"
-                    try:
-                        if hasattr(types, "VideoGenerationReferenceImage"):
+                    elif hasattr(types, "VideoGenerationReferenceImage"):
+                        # Any subsequent images (if multi-asset) are wrapped as reference assets
+                        ref_type = "asset"
+                        try:
                             ref_img_wrapper = types.VideoGenerationReferenceImage(
                                 image=img_obj,
                                 reference_type=ref_type,
                             )
-                            loaded_ref_objects.append(ref_img_wrapper)
-                    except Exception as wrap_err:
-                        logger.warning(f"Failed to wrap VideoGenerationReferenceImage: {wrap_err}")
+                            additional_ref_objects.append(ref_img_wrapper)
+                        except Exception as wrap_err:
+                            logger.warning(f"Failed to wrap VideoGenerationReferenceImage: {wrap_err}")
 
-        # If multi-reference objects were built, attach them directly into GenerateVideosConfig
-        if loaded_ref_objects:
-            config_kwargs["reference_images"] = loaded_ref_objects
-            logger.info(f"Veo Multi-Reference enabled: attached {len(loaded_ref_objects)} reference image(s) to config")
+        # If additional multi-reference objects were built, attach them directly into GenerateVideosConfig
+        if additional_ref_objects:
+            config_kwargs["reference_images"] = additional_ref_objects
+            logger.info(f"Veo Multi-Reference enabled: attached {len(additional_ref_objects)} extra reference image(s) to config")
 
         config = types.GenerateVideosConfig(**config_kwargs)
 
@@ -192,10 +190,11 @@ class VeoClient(VideoGenerationClient):
             "config": config,
         }
 
-        # If no multi-reference objects wrapped but single image exists, attach as image
-        if not loaded_ref_objects and first_frame_image is not None:
+        # Direct First-Frame Image-to-Video:
+        # Pass opening keyframe so Veo animates directly from this frame
+        if first_frame_image is not None:
             generate_kwargs["image"] = first_frame_image
-            logger.info("Veo Image-to-Video single-frame enabled: attached image")
+            logger.info("Veo Image-to-Video mode enabled: attached first_frame_image successfully.")
 
         try:
             if hasattr(self._client, "aio") and hasattr(self._client.aio, "models"):

@@ -1,12 +1,15 @@
 """Generate Images node — runs after review_prompts and before generate_videos.
 
-Executes script-driven visual asset generation:
-1. Dynamically identifies 0 to 3 image assets per shot as planned by LLM.
-2. Identifies & locks recurring Master Entities (Character, Product) so they are
-   generated only ONCE per project or seeded directly from user reference uploads.
-3. Subsequent shots reuse existing master asset paths with zero extra API cost and 100% facial/product consistency.
-4. Generates shot-specific environments, action keyframes, and settings.
-5. Saves all resolved image paths into state['shot_image_manifest'] for Veo conditioning.
+Generates ONE cohesive Master Keyframe image per shot driven entirely by the script:
+1. Uses `keyframe_image_prompt` (T=0s static opening frame) as the primary image prompt.
+   Falls back to `prompt_text` only when keyframe_image_prompt is absent.
+2. Derives aspect ratio dynamically from VideoSpecification — zero hardcoding.
+3. Preserves user-uploaded reference images (character / product / brand) via multimodal
+   conditioning in GeminiImageService.
+4. Locks the first successfully generated keyframe as the visual anchor for subsequent shots
+   when no user references were uploaded, maintaining cross-shot continuity.
+5. Saves exactly ONE MASTER_KEYFRAME entry per shot into state['shot_image_manifest']
+   for Veo image-to-video conditioning.
 """
 import asyncio
 import logging
@@ -32,8 +35,23 @@ def _normalize_asset_url(p: str) -> str:
     return f"/{clean}"
 
 
+def _mock_manifest(prompt_set) -> Dict[str, List[Dict[str, Any]]]:
+    """Returns a structured mock manifest (no API calls) for mock/CI mode."""
+    manifest: Dict[str, List[Dict[str, Any]]] = {}
+    for p in prompt_set.prompts:
+        mock_path = f"static/mock_{p.shot_id}_keyframe.png"
+        manifest[p.shot_id] = [{
+            "asset_id": f"{p.shot_id}_keyframe",
+            "role": "MASTER_KEYFRAME",
+            "path": mock_path,
+            "url": _normalize_asset_url(mock_path),
+            "reused": False,
+        }]
+    return manifest
+
+
 async def generate_images(state: AgentState) -> AgentState:
-    """Generates visual assets dynamically for all approved prompts."""
+    """Generates one cohesive Master Keyframe image per shot, driven by script and user references."""
     prompt_set = state.get("prompt_set")
     spec = state.get("video_specification")
     project_id = state.get("project_id") or "default_project"
@@ -42,208 +60,106 @@ async def generate_images(state: AgentState) -> AgentState:
         logger.warning("generate_images: prompt_set is empty, skipping image generation.")
         return state
 
-    # Check if mock image mode is requested or no API key is available
+    # Guard: mock mode or missing API key → return structured mock manifest, no API calls
     has_api_key = bool(settings.google_api_key and settings.google_api_key.get_secret_value())
     if settings.use_mock_image_api or not has_api_key:
         logger.info(
-            f"generate_images: Mock image mode active (use_mock_image_api={settings.use_mock_image_api}, "
-            f"has_api_key={has_api_key}). Creating structured mock asset manifest without calling real Image API."
+            f"generate_images: Mock mode active "
+            f"(use_mock_image_api={settings.use_mock_image_api}, has_api_key={has_api_key}). "
+            "Returning mock keyframe manifest."
         )
-        mock_manifest: Dict[str, List[Dict[str, Any]]] = {}
-        mock_masters: Dict[str, str] = {}
-        for p in prompt_set.prompts:
-            shot_assets = getattr(p, "image_assets", []) or []
-            manifest_items = []
-            if shot_assets:
-                for a in shot_assets:
-                    a_id = a.get("asset_id") or f"asset_{p.shot_id}"
-                    role = a.get("role", "ENVIRONMENT")
-                    is_master = a.get("is_master_entity", False)
-                    reuse_id = a.get("reuse_asset_id")
-
-                    if reuse_id and reuse_id in mock_masters:
-                        manifest_items.append({
-                            "asset_id": reuse_id,
-                            "role": role,
-                            "path": mock_masters[reuse_id],
-                            "url": _normalize_asset_url(mock_masters[reuse_id]),
-                            "reused": True,
-                        })
-                    else:
-                        m_path = f"static/mock_{a_id}.png"
-                        if is_master and a_id not in mock_masters:
-                            mock_masters[a_id] = m_path
-                        manifest_items.append({
-                            "asset_id": a_id,
-                            "role": role,
-                            "path": m_path,
-                            "url": _normalize_asset_url(m_path),
-                            "reused": False,
-                        })
-            else:
-                manifest_items.append({
-                    "asset_id": f"mock_asset_{p.shot_id}",
-                    "role": "ACTION_KEYFRAME",
-                    "path": f"static/mock_{p.shot_id}.png",
-                    "url": f"/static/mock_{p.shot_id}.png",
-                    "reused": False,
-                })
-            mock_manifest[p.shot_id] = manifest_items
-
-        return {
-            **state,
-            "master_asset_catalog": mock_masters,
-            "shot_image_manifest": mock_manifest,
-        }
+        return {**state, "master_asset_catalog": {}, "shot_image_manifest": _mock_manifest(prompt_set)}
 
     try:
         image_service = get_gemini_image_service()
     except ImageGenerationError as exc:
-        logger.warning(f"generate_images: Image service unavailable ({exc}). Proceeding without images.")
+        logger.warning(f"generate_images: Image service unavailable ({exc}). Skipping image generation.")
         return state
 
-    user_refs = state.get("reference_images") or {}
-    char_refs = user_refs.get("character") or []
-    prod_refs = user_refs.get("product") or []
-    brand_refs = user_refs.get("brand") or []
-
-    master_asset_catalog: Dict[str, str] = dict(state.get("master_asset_catalog") or {})
-    shot_manifest: Dict[str, List[Dict[str, Any]]] = dict(state.get("shot_image_manifest") or {})
-
-    default_aspect = "16:9"
+    # Derive aspect ratio dynamically from VideoSpecification — never hardcoded
+    target_aspect = "16:9"
     if spec and getattr(spec, "output_requirements", None):
-        default_aspect = spec.output_requirements.aspect_ratio or "16:9"
+        target_aspect = getattr(spec.output_requirements, "aspect_ratio", None) or "16:9"
 
-    # -------------------------------------------------------------
-    # Step 1: Scan and resolve Master Entities (Recurring Assets)
-    # -------------------------------------------------------------
-    for prompt in prompt_set.prompts:
-        assets = getattr(prompt, "image_assets", []) or []
-        for asset in assets:
-            asset_id = asset.get("asset_id")
-            is_master = asset.get("is_master_entity", False)
-            gen_prompt = asset.get("generation_prompt")
-            ref_cat = asset.get("user_reference_category")
+    # Collect user-uploaded reference image paths by category
+    user_refs = state.get("reference_images") or {}
+    char_refs: List[str] = user_refs.get("character") or []
+    prod_refs: List[str] = user_refs.get("product") or []
+    brand_refs: List[str] = user_refs.get("brand") or []
 
-            if is_master and asset_id and asset_id not in master_asset_catalog:
-                # Collect all uploaded user reference images for this category
-                user_image_paths = []
-                if ref_cat == "character" and char_refs:
-                    user_image_paths = char_refs
-                elif ref_cat == "product" and prod_refs:
-                    user_image_paths = prod_refs
-                elif ref_cat == "brand" and brand_refs:
-                    user_image_paths = brand_refs
+    # Combine all user-uploaded refs (up to 3) for multimodal conditioning
+    explicit_user_refs: List[str] = []
+    for ref_list in (char_refs, prod_refs, brand_refs):
+        explicit_user_refs.extend(ref_list)
+    explicit_user_refs = explicit_user_refs[:3]
 
-                if gen_prompt:
-                    logger.info(f"Generating Master Asset '{asset_id}' (Category: {ref_cat}, MultiRef: {len(user_image_paths)})")
-                    aspect = asset.get("aspect_ratio") or default_aspect
-                    saved_path = await image_service.generate_image(
-                        prompt=gen_prompt,
-                        aspect_ratio=aspect,
-                        ref_image=user_image_paths[0] if user_image_paths else None,
-                        ref_images=user_image_paths if user_image_paths else None,
-                        custom_filename=f"{project_id}_{asset_id}.png",
-                    )
-                    if saved_path:
-                        master_asset_catalog[asset_id] = saved_path
-                elif user_image_paths:
-                    # User reference image directly serves as master asset
-                    master_asset_catalog[asset_id] = user_image_paths[0]
+    # Visual continuity anchor: captures the first generated keyframe when no user refs exist
+    master_asset_catalog: Dict[str, str] = dict(state.get("master_asset_catalog") or {})
+    shot_manifest: Dict[str, List[Dict[str, Any]]] = {}
 
-    # -------------------------------------------------------------
-    # Step 2: Resolve Shot-Specific Assets (0 to 3 images per shot)
-    # -------------------------------------------------------------
-    for prompt in prompt_set.prompts:
-        shot_id = prompt.shot_id
-        shot_manifest[shot_id] = []
-        assets = getattr(prompt, "image_assets", []) or []
+    # Generate ONE Master Keyframe per shot
+    for idx, prompt_item in enumerate(prompt_set.prompts, start=1):
+        shot_id = prompt_item.shot_id
 
-        # If LLM didn't plan any assets, reuse existing master entities or fallback cleanly
-        if not assets:
-            if master_asset_catalog:
-                for m_id, m_path in list(master_asset_catalog.items())[:2]:
-                    is_char = "char" in m_id.lower()
-                    shot_manifest[shot_id].append({
-                        "asset_id": m_id,
-                        "role": "CHARACTER" if is_char else "PRODUCT",
-                        "path": m_path,
-                        "url": _normalize_asset_url(m_path),
-                        "reused": True,
-                    })
-            else:
-                fallback_prompt = prompt.prompt_text
-                logger.info(f"Shot '{shot_id}' has no planned assets. Generating fallback scene keyframe.")
-                saved_path = await image_service.generate_image(
-                    prompt=fallback_prompt,
-                    aspect_ratio=default_aspect,
-                    custom_filename=f"{project_id}_{shot_id}_keyframe.png",
-                )
-                await asyncio.sleep(1.0)
-                if saved_path:
-                    shot_manifest[shot_id].append({
-                        "asset_id": f"{shot_id}_keyframe",
-                        "role": "ACTION_KEYFRAME",
-                        "path": saved_path,
-                        "url": _normalize_asset_url(saved_path),
-                        "reused": False,
-                    })
-            continue
+        # Priority 1: use the LLM-written static opening-frame prompt (T=0s)
+        # Priority 2: fall back to video prompt_text if keyframe_image_prompt is absent
+        raw_kf_prompt = getattr(prompt_item, "keyframe_image_prompt", None)
+        effective_prompt = (
+            raw_kf_prompt if (raw_kf_prompt and raw_kf_prompt.strip())
+            else prompt_item.prompt_text
+        )
 
-        for asset in assets:
-            asset_id = asset.get("asset_id")
-            role = asset.get("role", "ENVIRONMENT")
-            reuse_id = asset.get("reuse_asset_id")
-            gen_prompt = asset.get("generation_prompt")
-            aspect = asset.get("aspect_ratio") or default_aspect
+        # Reference images to pass for multimodal conditioning:
+        # A. User-uploaded references take priority (preserves faces / product appearance)
+        # B. If no uploads, use the first generated keyframe as a cross-shot visual anchor
+        ref_images_to_use: List[str] = []
+        if explicit_user_refs:
+            ref_images_to_use = explicit_user_refs
+        elif "primary_anchor" in master_asset_catalog:
+            ref_images_to_use = [master_asset_catalog["primary_anchor"]]
 
-            # Case A: Reusing an existing master entity
-            target_reuse = reuse_id or (asset_id if asset_id in master_asset_catalog else None)
-            if target_reuse and target_reuse in master_asset_catalog:
-                cached_path = master_asset_catalog[target_reuse]
-                logger.info(f"Shot '{shot_id}': Reusing Master Asset '{target_reuse}' -> {cached_path}")
-                shot_manifest[shot_id].append({
-                    "asset_id": target_reuse,
-                    "role": role,
-                    "path": cached_path,
-                    "url": _normalize_asset_url(cached_path),
-                    "reused": True,
-                })
-                continue
+        filename = f"{project_id}_{shot_id}_keyframe.png"
+        logger.info(
+            f"generate_images: Shot {idx}/{len(prompt_set.prompts)} ('{shot_id}') → "
+            f"aspect={target_aspect}, refs={len(ref_images_to_use)}, "
+            f"using={'keyframe_image_prompt' if raw_kf_prompt else 'prompt_text (fallback)'}"
+        )
 
-            # Case B: Fresh shot-specific asset generation (or fallback if master failed)
-            effective_prompt = gen_prompt or prompt.prompt_text
-            ref_cat = asset.get("user_reference_category")
-            user_image_paths = []
-            if ref_cat == "character" and char_refs:
-                user_image_paths = char_refs
-            elif ref_cat == "product" and prod_refs:
-                user_image_paths = prod_refs
-            elif ref_cat == "brand" and brand_refs:
-                user_image_paths = brand_refs
+        saved_path = await image_service.generate_image(
+            prompt=effective_prompt,
+            aspect_ratio=target_aspect,
+            ref_images=ref_images_to_use if ref_images_to_use else None,
+            custom_filename=filename,
+        )
 
-            logger.info(f"Shot '{shot_id}': Generating fresh asset '{asset_id}' (Role: {role})")
-            saved_path = await image_service.generate_image(
-                prompt=effective_prompt,
-                aspect_ratio=aspect,
-                ref_image=user_image_paths[0] if user_image_paths else None,
-                ref_images=user_image_paths if user_image_paths else None,
-                custom_filename=f"{project_id}_{shot_id}_{asset_id}.png",
+        # Rate-limit courtesy pause between sequential API calls
+        await asyncio.sleep(0.5)
+
+        resolved_path = saved_path or f"static/generated_images/{filename}"
+
+        # Lock the first successful keyframe as the visual anchor for subsequent shots
+        # (only when no user references were uploaded)
+        if saved_path and not explicit_user_refs and "primary_anchor" not in master_asset_catalog:
+            master_asset_catalog["primary_anchor"] = saved_path
+            logger.info(
+                f"generate_images: Shot '{shot_id}' locked as primary visual anchor "
+                "for cross-shot continuity."
             )
-            await asyncio.sleep(1.0)
-            if saved_path:
-                shot_manifest[shot_id].append({
-                    "asset_id": asset_id,
-                    "role": role,
-                    "path": saved_path,
-                    "url": _normalize_asset_url(saved_path),
-                    "reused": False,
-                })
-                if asset.get("is_master_entity", False) and asset_id:
-                    master_asset_catalog[asset_id] = saved_path
 
-    total_images_resolved = sum(len(items) for items in shot_manifest.values())
-    logger.info(f"generate_images completed: {len(master_asset_catalog)} master entities locked, {total_images_resolved} total shot references mapped.")
+        # Store exactly ONE MASTER_KEYFRAME entry for this shot
+        shot_manifest[shot_id] = [{
+            "asset_id": f"{shot_id}_keyframe",
+            "role": "MASTER_KEYFRAME",
+            "path": resolved_path,
+            "url": _normalize_asset_url(resolved_path),
+            "reused": False,
+        }]
+
+    total_resolved = sum(len(items) for items in shot_manifest.values())
+    logger.info(
+        f"generate_images completed: {total_resolved} master keyframes generated "
+        f"across {len(prompt_set.prompts)} shots."
+    )
 
     return {
         **state,

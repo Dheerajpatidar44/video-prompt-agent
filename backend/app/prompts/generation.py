@@ -104,6 +104,46 @@ Additional constraints:
 - For EACH shot, write a production-ready prompt_text optimized for {target_tool}.
 
 ===================
+KEYFRAME IMAGE PROMPT RULES:
+===================
+
+For every prompt you MUST also populate `keyframe_image_prompt`.
+This field is used exclusively by the still-image AI (not the video model) to generate ONE unified
+photographic anchor frame for the opening moment of the shot.
+
+WHAT TO WRITE IN `keyframe_image_prompt`:
+Describe only what is physically visible at the VERY FIRST FRAME (T=0.0s) of the shot as a
+single cohesive photographic image — as if a photographer pressed the shutter at the exact
+instant the shot begins.
+
+MANDATORY RULES FOR `keyframe_image_prompt`:
+1. STATIC SNAPSHOT ONLY: Describe the subject's pose, expression, wardrobe and props exactly as
+   they appear at the opening instant. Do not describe what happens next.
+2. UNIFIED COMPOSITION: Place every visible element — subject, environment, background, props —
+   naturally together inside ONE frame with matching lighting and spatial depth.
+   - If the shot has a character: describe their full appearance (age, build, hair, every garment
+     item with colour, fabric and fit) and their opening pose, all placed inside the script's
+     environment with its lighting.
+   - If the shot is a product hero shot: describe the product on its surface with material detail
+     and lighting highlights, inside its environment.
+   - If the shot is a pure environment / establishing shot with NO character: describe only the
+     location, architecture, atmosphere and light. Do NOT force a character into the frame.
+3. ABSOLUTE PROHIBITION — NEVER write any of the following:
+   - Sequential or time-progression language: "then", "next", "afterward", "walks over to",
+     "turns and speaks", "transitions into", "as she moves".
+   - Multiple actions or story beats across time.
+   - Dialogue, voiceover, speech, or subtitles.
+   - Instructions to the image model ("generate", "create", "show", "depict").
+   Describing multiple sequential actions will cause the image model to render a multi-panel
+   comic strip collage. The field MUST describe ONE frozen photographic instant only.
+4. PHOTOGRAPHIC LANGUAGE: Use qualitative photographic / cinematic phrasing:
+   "photorealistic natural-light photograph", "shallow depth of field with soft background
+   separation", "volumetric ambient light", "single cohesive camera frame". Do NOT use
+   numeric camera parameters (no mm focal lengths, no f-stop values).
+5. DYNAMIC — NOT HARDCODED: Do NOT hardcode aspect ratio, composition style, or number of
+   subjects. Derive everything from the script and specification.
+
+===================
 CONTINUITY REQUIREMENTS RULES:
 ===================
 
@@ -163,7 +203,7 @@ Return a JSON object with:
 
 Each scene: scene_id, scene_number, title, purpose, narrative_role, start_time, end_time, duration_seconds, location_id, character_ids, product_ids, shots[]
 Each shot in scene: shot_id, shot_number, scene_id, start_time, end_time, duration_seconds, purpose, subject, action, framing, camera_angle, camera_movement, composition, lighting, visual_focus, product_focus, source_actions[]
-Each prompt: prompt_id, scene_id, shot_id, sequence_number, duration_seconds, prompt_text, negative_constraints, continuity_requirements[], source_traceability[], source_actions[]
+Each prompt: prompt_id, scene_id, shot_id, sequence_number, duration_seconds, prompt_text, keyframe_image_prompt, negative_constraints, continuity_requirements[], source_traceability[], source_actions[]
 
 Note on optional shot fields (camera_angle, composition, lighting, visual_focus,
 product_focus): fill each one when it is relevant and determinable for that shot;
