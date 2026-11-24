@@ -80,12 +80,13 @@ class _LLMProxy(BaseLLMService):
         prompt: str,
         schema: Type[T],
         *,
+        system_instruction: Optional[str] = None,
         operation: str = "unknown",
         thread_id: str = "",
         max_tokens: Optional[int] = None,
     ) -> T:
         return await get_llm_service().generate_structured(
-            prompt, schema, operation=operation, thread_id=thread_id, max_tokens=max_tokens
+            prompt, schema, system_instruction=system_instruction, operation=operation, thread_id=thread_id, max_tokens=max_tokens
         )
 
     async def generate_structured_with_images(
@@ -94,12 +95,13 @@ class _LLMProxy(BaseLLMService):
         image_urls: List[str],
         schema: Type[T],
         *,
+        system_instruction: Optional[str] = None,
         operation: str = "unknown",
         thread_id: str = "",
         max_tokens: Optional[int] = None,
     ) -> T:
         return await get_llm_service().generate_structured_with_images(
-            prompt, image_urls, schema, operation=operation, thread_id=thread_id, max_tokens=max_tokens
+            prompt, image_urls, schema, system_instruction=system_instruction, operation=operation, thread_id=thread_id, max_tokens=max_tokens
         )
 
     async def close(self) -> None:

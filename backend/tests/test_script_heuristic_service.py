@@ -177,3 +177,25 @@ def test_commercial_av_table_and_timestamps():
     assert report.dialogue_lines[0].speaker == "Vo"
     assert "Aurora Shoes. Built for speed." in report.dialogue_lines[0].text
 
+
+def test_creator_second_ranges_and_ui_popup_filter():
+    script = """
+    Create a sharp 4K-quality 9:16 vertical video.
+    0–2s: Mascot looks at phone. Clear popup: "Application Status: Not Selected"
+    VO: "Resume bheja. Interview tak nahi pahuncha. Pata hai kyun?"
+    3–8s: Mascot holds resume. X-ray scan highlights missing keywords.
+    VO: "90% companies ab resume insaan nahi, ek software padhta hai."
+    """
+    report = ScriptHeuristicService.scan_script(script)
+    assert report.detected_duration_seconds == 8.0
+    assert report.aspect_ratio_hint == "9:16"
+    assert report.scene_count == 2
+    assert "SCENE 1 [0s - 2s]" in report.detected_scenes[0].header
+    assert "SCENE 2 [3s - 8s]" in report.detected_scenes[1].header
+    # Clear popup should NOT be counted as speaker dialogue
+    speakers = [d.speaker for d in report.dialogue_lines]
+    assert "Clear Popup" not in speakers
+    assert all(d.speaker == "Vo" for d in report.dialogue_lines)
+    assert len(report.dialogue_lines) == 2
+
+

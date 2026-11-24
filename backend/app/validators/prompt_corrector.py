@@ -19,7 +19,12 @@ from app.schemas.review_report import (
     ReviewIssue, ReviewReport, ReviewStatus,
     IssueSeverity, IssueCategory,
 )
-from app.prompts.prompt_patch import PROMPT_PATCH_PROMPT, PromptPatchResult
+from app.prompts.prompt_patch import (
+    PROMPT_PATCH_PROMPT,
+    PROMPT_PATCH_SYSTEM_INSTRUCTION,
+    PROMPT_PATCH_USER_PROMPT,
+    PromptPatchResult,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -324,7 +329,7 @@ async def _try_llm_patch(
                 "word-for-word. If it is a timing issue, significantly shorten the text."
             )
 
-        patch_prompt = PROMPT_PATCH_PROMPT.format(
+        user_prompt = PROMPT_PATCH_USER_PROMPT.format(
             prompt_text=prompt.prompt_text,
             negative_constraints=prompt.negative_constraints or "None",
             issue_category=issue.category.value,
@@ -335,8 +340,9 @@ async def _try_llm_patch(
         )
 
         result = await llm_service.generate_structured(
-            patch_prompt,
+            user_prompt,
             PromptPatchResult,
+            system_instruction=PROMPT_PATCH_SYSTEM_INSTRUCTION,
             operation="prompt_patch",
             thread_id="reviewer",
         )

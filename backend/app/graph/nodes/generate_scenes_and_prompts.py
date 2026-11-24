@@ -14,7 +14,7 @@ from app.schemas.generated_prompt import (
 )
 from app.schemas.generation import GenerationResult
 from app.llm import llm_service
-from app.prompts.generation import GENERATION_PROMPT
+from app.prompts.generation import GENERATION_PROMPT, GENERATION_SYSTEM_INSTRUCTION, GENERATION_USER_PROMPT
 from app.prompts.tool_rules import get_tool_rules
 from app.validators.prompt_validation import validate_prompt_set
 
@@ -76,17 +76,18 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
     tool_rules = get_tool_rules(tool)
 
     try:
-        prompt = GENERATION_PROMPT.format(
+        user_prompt = GENERATION_USER_PROMPT.format(
             video_specification=spec.model_dump_json(indent=2),
             total_duration=target_duration if target_duration is not None else "UNKNOWN",
             target_tool=tool,
             tool_specific_rules=tool_rules,
         )
-        logger.info(f"Final prompt length: {len(prompt)} characters (Tool: {tool})")
+        logger.info(f"Final user prompt length: {len(user_prompt)} chars, system instruction: {len(GENERATION_SYSTEM_INSTRUCTION)} chars (Tool: {tool})")
 
         result = await llm_service.generate_structured(
-            prompt,
+            user_prompt,
             GenerationResult,
+            system_instruction=GENERATION_SYSTEM_INSTRUCTION,
             operation="generate_scenes_and_prompts",
             thread_id=thread_id,
         )

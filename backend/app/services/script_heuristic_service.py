@@ -52,6 +52,11 @@ class ScriptHeuristicService:
     RE_TIMESTAMP_RANGE = re.compile(
         r"(\d{1,2}\s*:\s*\d{2})\s*[\s\-\–\—\~\ufffdto]+\s*(\d{1,2}\s*:\s*\d{2})"
     )
+    # Second-based creator timestamp ranges: "0-2s:", "0–2s", "0 to 2s", "3–8s:", "[0-2 sec]"
+    RE_SECOND_RANGE = re.compile(
+        r"(?:^|[\n\r;|\(\[])\s*(\d{1,2}(?:\.\d+)?)\s*(?:s|sec|seconds?)?\s*[\-–—~to]+\s*(\d{1,2}(?:\.\d+)?)\s*(?:s|sec|seconds?)\b\s*[:\-\)\]]?",
+        re.IGNORECASE | re.MULTILINE,
+    )
     RE_DIALOGUE = re.compile(
         r'(?:^|[\n|.;])\s*([A-Za-z][A-Za-z0-9_\- ]{1,25}?)\s*(?:\([^)]*\))?\s*:\s*["\']?([^"\'\n\r|]{2,200})["\']?',
         re.MULTILINE,
@@ -127,7 +132,9 @@ class ScriptHeuristicService:
             "ASPECT", "ASPECT RATIO", "PRODUCT", "BRAND", "TARGET",
             "AWARENESS", "ANGLE", "FILLS", "AUDIO", "VISUAL", "TIMESTAMP", "TIME",
             "UPPER HALF", "BOTTOM HALF", "TOP HALF", "LEFT HALF", "RIGHT HALF",
-            "SPLIT SCREEN", "SPLIT-SCREEN"
+            "SPLIT SCREEN", "SPLIT-SCREEN", "POPUP", "POP-UP", "CLEAR POPUP",
+            "NOTIFICATION", "ALERT", "MODAL", "BANNER", "BADGE", "OVERLAY",
+            "STICKER", "BUBBLE", "MESSAGE", "SCREEN", "CARD", "UI"
         }
 
         matches = ScriptHeuristicService.RE_DIALOGUE.findall(script_text)
@@ -140,7 +147,7 @@ class ScriptHeuristicService:
                 not clean_speaker
                 or not clean_speaker[0].isalpha()
                 or spk_up in ignore_speakers
-                or any(kw in spk_up for kw in ["HALF", "OVERLAY", "STOPWATCH", "SCREEN"])
+                or any(kw in spk_up for kw in ["HALF", "OVERLAY", "STOPWATCH", "SCREEN", "POPUP", "POP-UP", "MODAL", "ALERT", "CARD", "NOTIF"])
             ):
                 continue
             clean_speech = speech.strip()
@@ -202,7 +209,32 @@ class ScriptHeuristicService:
                 ))
             return scenes
 
-        # 2. Check for Commercial AV Storyboard Table shots / Timestamps
+        # 2. Check for Second-based Timestamp Scene Markers: e.g. "0-2s:", "3-8s:", "0–2s: ..."
+        timestamp_lines = []
+        for line in script_text.splitlines():
+            line_clean = line.strip()
+            if not line_clean:
+                continue
+            m = ScriptHeuristicService.RE_SECOND_RANGE.match(line_clean)
+            if m:
+                start_s = m.group(1)
+                end_s = m.group(2)
+                desc = line_clean[m.end():].lstrip(":- ").strip()
+                timestamp_lines.append((start_s, end_s, desc or line_clean))
+
+        if timestamp_lines:
+            scenes = []
+            for idx, (st, en, desc) in enumerate(timestamp_lines):
+                scenes.append(SceneStructure(
+                    scene_number=idx + 1,
+                    header=f"SCENE {idx + 1} [{st}s - {en}s]",
+                    setting_type="INT" if re.search(r"\b(?:ROOM|OFFICE|KITCHEN|BEDROOM|DESK|PHONE|INSIDE|INTERIOR)\b", desc, re.I) else "UNKNOWN",
+                    lighting_time="DAY",
+                    summary_hint=desc[:120].strip() or f"Narrative beat {st}s to {en}s"
+                ))
+            return scenes
+
+        # 3. Check for Commercial AV Storyboard Table shots / Timestamps
         table_shots = []
         for line in script_text.splitlines():
             line_clean = line.strip()
@@ -262,37 +294,49 @@ class ScriptHeuristicService:
     @staticmethod
     def detect_duration_and_aspect(script_text: str) -> tuple[Optional[float], Optional[str]]:
         duration: Optional[float] = None
-        dur_match = ScriptHeuristicService.RE_DURATION.search(script_text)
-        if dur_match:
-            val_str = dur_match.group(1) or dur_match.group(2)
+
+        # Check explicit "duration: X" or "final video duration: X"
+        explicit_m = re.search(
+            r"(?:final\s+)?(?:video\s+)?(?:duration|length|runtime)\s*[:=-]?\s*(\d{1,2}(?:\.\d+)?)\s*(?:seconds?|secs?|s)?\b",
+            script_text,
+            re.IGNORECASE,
+        )
+        if explicit_m:
             try:
-                duration = float(val_str)
+                duration = float(explicit_m.group(1))
             except ValueError:
                 pass
 
-        # Check explicit "duration: X" or "final video duration: X"
+        # Check explicit timestamp ranges (second-based and colon-based)
         if duration is None:
-            explicit_m = re.search(
-                r"(?:final\s+)?(?:video\s+)?(?:duration|length|runtime)\s*[:=-]?\s*(\d{1,2}(?:\.\d+)?)\s*(?:seconds?|secs?|s)?\b",
-                script_text,
-                re.IGNORECASE,
-            )
-            if explicit_m:
+            max_ts = 0.0
+            second_ranges = ScriptHeuristicService.RE_SECOND_RANGE.findall(script_text)
+            for _, end_str in second_ranges:
                 try:
-                    duration = float(explicit_m.group(1))
+                    val = float(end_str)
+                    if val > max_ts:
+                        max_ts = val
                 except ValueError:
                     pass
 
-        # Check timestamp range fallback if explicit duration wasn't matched
+            colon_matches = ScriptHeuristicService.RE_TIMESTAMP_RANGE.findall(script_text)
+            for _, end_col in colon_matches:
+                col_val = float(ScriptHeuristicService._parse_timestamp_seconds(end_col))
+                if col_val > max_ts:
+                    max_ts = col_val
+
+            if max_ts > 0:
+                duration = max_ts
+
+        # Fallback to standalone duration mentions (e.g. "A 10s horizontal video") ONLY if no ranges were found
         if duration is None:
-            ts_matches = ScriptHeuristicService.RE_TIMESTAMP_RANGE.findall(script_text)
-            if ts_matches:
-                max_s = max(
-                    ScriptHeuristicService._parse_timestamp_seconds(end_t)
-                    for _, end_t in ts_matches
-                )
-                if max_s > 0:
-                    duration = float(max_s)
+            dur_match = ScriptHeuristicService.RE_DURATION.search(script_text)
+            if dur_match:
+                val_str = dur_match.group(1) or dur_match.group(2)
+                try:
+                    duration = float(val_str)
+                except ValueError:
+                    pass
 
         aspect: Optional[str] = None
         if ScriptHeuristicService.RE_VERTICAL.search(script_text):

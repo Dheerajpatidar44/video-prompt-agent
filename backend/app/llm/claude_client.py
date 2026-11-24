@@ -76,6 +76,7 @@ class ClaudeLLMService(BaseLLMService):
         prompt: str,
         schema: Type[T],
         *,
+        system_instruction: Optional[str] = None,
         operation: str = "unknown",
         thread_id: str = "",
         max_tokens: int | None = None,
@@ -115,14 +116,18 @@ class ClaudeLLMService(BaseLLMService):
         async with ClaudeLLMService._semaphore:
             t_call_start = time.perf_counter()
             queue_wait = t_call_start - t_enqueued
+            create_kwargs = {
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": prompt_with_instruction}],
+                "max_tokens": effective_max_tokens,
+                "tools": tools,
+                "tool_choice": {"type": "auto"},
+            }
+            if system_instruction:
+                create_kwargs["system"] = system_instruction
+
             try:
-                response = await self.client.messages.create(
-                    model=self.model_name,
-                    messages=[{"role": "user", "content": prompt_with_instruction}],
-                    max_tokens=effective_max_tokens,
-                    tools=tools,
-                    tool_choice={"type": "auto"},
-                )
+                response = await self.client.messages.create(**create_kwargs)
             except anthropic.APIStatusError as e:
                 elapsed = time.perf_counter() - t_call_start
                 logger.error(
@@ -185,6 +190,7 @@ class ClaudeLLMService(BaseLLMService):
         image_urls: list[str],
         schema: Type[T],
         *,
+        system_instruction: Optional[str] = None,
         operation: str = "unknown",
         thread_id: str = "",
         max_tokens: int | None = None,
@@ -260,14 +266,18 @@ class ClaudeLLMService(BaseLLMService):
         async with ClaudeLLMService._semaphore:
             t_call_start = time.perf_counter()
             queue_wait = t_call_start - t_enqueued
+            create_kwargs = {
+                "model": self.model_name,
+                "messages": [{"role": "user", "content": content_blocks}],
+                "max_tokens": effective_max_tokens,
+                "tools": tools,
+                "tool_choice": {"type": "auto"},
+            }
+            if system_instruction:
+                create_kwargs["system"] = system_instruction
+
             try:
-                response = await self.client.messages.create(
-                    model=self.model_name,
-                    messages=[{"role": "user", "content": content_blocks}],
-                    max_tokens=effective_max_tokens,
-                    tools=tools,
-                    tool_choice={"type": "auto"},
-                )
+                response = await self.client.messages.create(**create_kwargs)
             except anthropic.APIStatusError as e:
                 elapsed = time.perf_counter() - t_call_start
                 logger.error(

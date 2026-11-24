@@ -37,9 +37,20 @@ def _normalize_asset_url(p: str) -> str:
 
 def _mock_manifest(prompt_set) -> Dict[str, List[Dict[str, Any]]]:
     """Returns a structured mock manifest (no API calls) for mock/CI mode."""
+    import os
     manifest: Dict[str, List[Dict[str, Any]]] = {}
+    os.makedirs("static", exist_ok=True)
+    # Minimal 1x1 transparent PNG bytes to avoid 404 in frontend
+    DUMMY_PNG = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15c4\x00\x00\x00\rIDATx\x9cc\xf8\xff\xbf\x01\x00\x05\xfe\x02\xfe\xa76\x81\x84\x00\x00\x00\x00IEND\xaeB`\x82"
+
     for p in prompt_set.prompts:
         mock_path = f"static/mock_{p.shot_id}_keyframe.png"
+        if not os.path.exists(mock_path):
+            try:
+                with open(mock_path, "wb") as f:
+                    f.write(DUMMY_PNG)
+            except Exception:
+                pass
         manifest[p.shot_id] = [{
             "asset_id": f"{p.shot_id}_keyframe",
             "role": "MASTER_KEYFRAME",

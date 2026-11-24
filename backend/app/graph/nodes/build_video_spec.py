@@ -4,7 +4,11 @@ from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus, GapStatus, Importance
 from app.schemas.specification import VideoSpecification, SpecStatus, SpecSource, UnresolvedItem
 from app.llm import llm_service
-from app.prompts.video_specification import VIDEO_SPECIFICATION_PROMPT
+from app.prompts.video_specification import (
+    VIDEO_SPECIFICATION_PROMPT,
+    VIDEO_SPECIFICATION_SYSTEM_INSTRUCTION,
+    VIDEO_SPECIFICATION_USER_PROMPT,
+)
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -38,7 +42,7 @@ async def build_video_spec(state: AgentState) -> AgentState:
     output_requirements_text = "\n".join(req_parts) if req_parts else "None specified by user."
 
     try:
-        prompt = VIDEO_SPECIFICATION_PROMPT.format(
+        user_prompt = VIDEO_SPECIFICATION_USER_PROMPT.format(
             script=original_script,
             analysis=json.dumps(analysis, indent=2),
             gaps=json.dumps(gaps_json, indent=2),
@@ -46,7 +50,9 @@ async def build_video_spec(state: AgentState) -> AgentState:
             output_requirements=output_requirements_text,
         )
         spec = await llm_service.generate_structured(
-            prompt, VideoSpecification,
+            user_prompt,
+            VideoSpecification,
+            system_instruction=VIDEO_SPECIFICATION_SYSTEM_INSTRUCTION,
             operation="build_video_spec",
             thread_id=thread_id,
         )

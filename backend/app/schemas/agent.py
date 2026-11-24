@@ -78,11 +78,16 @@ class GapDetectionResult(BaseModel):
 class Question(BaseModel):
     id: str
     gap_ids: List[str] = []
-    question: str
+    question: str = Field(
+        description="Clear, conversational clarification question in natural language, explaining why the choice matters to the video's look or story."
+    )
     category: str
     priority: Importance
     answer_type: AnswerType = AnswerType.TEXT
-    options: Optional[List[str]] = None
+    options: Optional[List[str]] = Field(
+        default=None,
+        description="Helpful suggested options for creative, visual, or narrative choices so the user can easily answer or choose."
+    )
     required: bool = True
     round_number: int = 0
     answer: Optional[str] = None

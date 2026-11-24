@@ -39,9 +39,8 @@ export function CopyButton({ text }: { text: string }) {
     <button
       onClick={handleCopy}
       title="Copy prompt"
-      className={`flex items-center gap-1.5 px-[14px] py-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] text-[12px] cursor-pointer transition-all duration-150 shrink-0 ${
-        copied ? "text-[#22c55e]" : "text-[var(--color-text-secondary)]"
-      }`}
+      className={`flex items-center gap-1.5 px-[14px] py-1.5 rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] text-[12px] cursor-pointer transition-all duration-150 shrink-0 ${copied ? "text-[#22c55e]" : "text-[var(--color-text-secondary)]"
+        }`}
     >
       {copied ? <Check size={13} /> : <Copy size={13} />}
       {copied ? "Copied!" : "Copy"}
@@ -242,9 +241,9 @@ export function ResultsView({
               if (prompt.negative_constraints) {
                 fullPromptText += `\n\nNegative: ${prompt.negative_constraints}`;
               }
-              if (prompt.continuity_requirements && prompt.continuity_requirements.length > 0) {
-                fullPromptText += `\n\nContinuity: ${prompt.continuity_requirements.join(", ")}`;
-              }
+              // if (prompt.continuity_requirements && prompt.continuity_requirements.length > 0) {
+              //   fullPromptText += `\n\nContinuity: ${prompt.continuity_requirements.join(", ")}`;
+              // }
 
               const shotImages = getShotImages(prompt.shot_id, prompt.sequence_number || idx + 1);
 

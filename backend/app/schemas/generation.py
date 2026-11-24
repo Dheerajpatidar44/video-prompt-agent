@@ -63,7 +63,15 @@ class GeneratedPromptItem(BaseModel):
     shot_id: str
     sequence_number: int
     duration_seconds: float
-    prompt_text: str
+    prompt_text: str = Field(
+        description=(
+            "Production-ready cinematic prompt for Google Veo. Must fully describe the complete visual anatomy: "
+            "environment depth (foreground, midground, background), subject & wardrobe materials (fabrics, textures, fit), "
+            "continuous physical motion, camera movement, qualitative optics (shallow depth of field, soft bokeh, wide framing — "
+            "NO numeric mm or f-stop numbers), lighting physics & atmosphere, and ambient acoustics/dialogue. "
+            "Maintain rich descriptive depth across all shots; avoid shallow summaries."
+        )
+    )
     keyframe_image_prompt: Optional[str] = Field(
         default=None,
         description=(
@@ -73,8 +81,17 @@ class GeneratedPromptItem(BaseModel):
             "Single unified frame only — no sequential actions, no transitions, no dialogue."
         ),
     )
-    negative_constraints: Optional[str] = None
-    continuity_requirements: List[str] = []
+    negative_constraints: Optional[str] = Field(
+        default=None,
+        description=(
+            "Comma-separated list of shot-specific visual defects, distortions, or continuity drift risks to avoid. "
+            "Name specific elements without 'no' or 'without' phrasing."
+        ),
+    )
+    continuity_requirements: List[str] = Field(
+        default_factory=list,
+        description="List of precise checkable lines (STARTS: ..., ENDS: ..., LOCK: ..., VOICE: ...) chaining visual state from previous shots."
+    )
     source_actions: List[str] = []
     image_assets: List[ShotImageAssetPlan] = Field(default_factory=list)
 

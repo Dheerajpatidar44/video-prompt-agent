@@ -9,7 +9,11 @@ from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus, GapStatus, Importance, QuestionStatus
 from app.schemas.script import InitialAnalysisResult
 from app.llm import llm_service, LLMException
-from app.prompts.initial_analysis import INITIAL_ANALYSIS_PROMPT
+from app.prompts.initial_analysis import (
+    INITIAL_ANALYSIS_PROMPT,
+    INITIAL_ANALYSIS_SYSTEM_INSTRUCTION,
+    INITIAL_ANALYSIS_USER_PROMPT,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +60,7 @@ async def analyze_script(state: AgentState) -> AgentState:
 
     selected_tool = state.get("selected_tool", "Veo")
 
-    prompt = INITIAL_ANALYSIS_PROMPT.format(
+    user_prompt = INITIAL_ANALYSIS_USER_PROMPT.format(
         target_model=selected_tool,
         deterministic_facts=deterministic_facts_summary,
         script=script_text,
@@ -67,16 +71,18 @@ async def analyze_script(state: AgentState) -> AgentState:
     try:
         if all_image_urls:
             result = await llm_service.generate_structured_with_images(
-                prompt,
+                user_prompt,
                 all_image_urls,
                 InitialAnalysisResult,
+                system_instruction=INITIAL_ANALYSIS_SYSTEM_INSTRUCTION,
                 operation="initial_analysis_with_vision",
                 thread_id=thread_id,
             )
         else:
             result = await llm_service.generate_structured(
-                prompt,
+                user_prompt,
                 InitialAnalysisResult,
+                system_instruction=INITIAL_ANALYSIS_SYSTEM_INSTRUCTION,
                 operation="initial_analysis",
                 thread_id=thread_id,
             )

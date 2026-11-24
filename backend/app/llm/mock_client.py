@@ -29,6 +29,7 @@ class MockLLMService(BaseLLMService):
         prompt: str,
         schema: Type[T],
         *,
+        system_instruction: Optional[str] = None,
         operation: str = "unknown",
         thread_id: str = "",
         max_tokens: Optional[int] = None,
@@ -37,6 +38,7 @@ class MockLLMService(BaseLLMService):
             "operation": operation,
             "thread_id": thread_id,
             "prompt": prompt,
+            "system_instruction": system_instruction,
             "schema": schema.__name__,
             "with_images": False,
         })
@@ -49,6 +51,7 @@ class MockLLMService(BaseLLMService):
         image_urls: List[str],
         schema: Type[T],
         *,
+        system_instruction: Optional[str] = None,
         operation: str = "unknown",
         thread_id: str = "",
         max_tokens: Optional[int] = None,
@@ -58,6 +61,7 @@ class MockLLMService(BaseLLMService):
             "thread_id": thread_id,
             "prompt": prompt,
             "image_urls": image_urls,
+            "system_instruction": system_instruction,
             "schema": schema.__name__,
             "with_images": True,
         })

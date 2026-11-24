@@ -1,7 +1,11 @@
 from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus, Gap, ReAnalysisResult, GapStatus, Importance, QuestionStatus
 from app.llm import llm_service, LLMException
-from app.prompts.re_analyzer import RE_ANALYZER_PROMPT
+from app.prompts.re_analyzer import (
+    RE_ANALYZER_PROMPT,
+    RE_ANALYZER_SYSTEM_INSTRUCTION,
+    RE_ANALYZER_USER_PROMPT,
+)
 from app.graph.routing import within_round_limit, has_unresolved_priority_gaps
 import logging
 
@@ -48,7 +52,7 @@ async def re_analyze(state: AgentState) -> AgentState:
     
     rounds_remaining = within_round_limit(current_round, max_rounds)
     
-    prompt = RE_ANALYZER_PROMPT.format(
+    user_prompt = RE_ANALYZER_USER_PROMPT.format(
         script=original_script,
         analysis=script_analysis,
         gaps=gaps_json,
@@ -58,7 +62,9 @@ async def re_analyze(state: AgentState) -> AgentState:
 
     try:
         result = await llm_service.generate_structured(
-            prompt, ReAnalysisResult,
+            user_prompt,
+            ReAnalysisResult,
+            system_instruction=RE_ANALYZER_SYSTEM_INSTRUCTION,
             operation="re_analyze",
             thread_id=thread_id,
         )

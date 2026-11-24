@@ -198,6 +198,7 @@ class GeminiLLMService(BaseLLMService):
         prompt: str,
         schema: Type[T],
         *,
+        system_instruction: Optional[str] = None,
         operation: str = "unknown",
         thread_id: str = "",
         max_tokens: Optional[int] = None,
@@ -206,12 +207,16 @@ class GeminiLLMService(BaseLLMService):
         effective_max_tokens = max_tokens or settings.gemini_llm_max_output_tokens
         val_retries = getattr(settings, "gemini_llm_validation_retries", 2)
 
-        config = types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=schema,
-            temperature=settings.gemini_llm_temperature,
-            max_output_tokens=effective_max_tokens,
-        )
+        config_kwargs = {
+            "response_mime_type": "application/json",
+            "response_schema": schema,
+            "temperature": settings.gemini_llm_temperature,
+            "max_output_tokens": effective_max_tokens,
+        }
+        if system_instruction:
+            config_kwargs["system_instruction"] = system_instruction
+
+        config = types.GenerateContentConfig(**config_kwargs)
 
         current_prompt = prompt
         last_error = None
@@ -303,6 +308,7 @@ class GeminiLLMService(BaseLLMService):
         image_urls: List[str],
         schema: Type[T],
         *,
+        system_instruction: Optional[str] = None,
         operation: str = "unknown",
         thread_id: str = "",
         max_tokens: Optional[int] = None,
@@ -311,12 +317,16 @@ class GeminiLLMService(BaseLLMService):
         effective_max_tokens = max_tokens or settings.gemini_llm_max_output_tokens
         val_retries = getattr(settings, "gemini_llm_validation_retries", 2)
 
-        config = types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=schema,
-            temperature=settings.gemini_llm_temperature,
-            max_output_tokens=effective_max_tokens,
-        )
+        config_kwargs = {
+            "response_mime_type": "application/json",
+            "response_schema": schema,
+            "temperature": settings.gemini_llm_temperature,
+            "max_output_tokens": effective_max_tokens,
+        }
+        if system_instruction:
+            config_kwargs["system_instruction"] = system_instruction
+
+        config = types.GenerateContentConfig(**config_kwargs)
 
         # Download and validate image parts in parallel
         image_tasks = [self._fetch_and_validate_image(url) for url in image_urls]
