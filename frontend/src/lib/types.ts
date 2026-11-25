@@ -5,9 +5,17 @@ export type AgentStatus =
   | 'PLANNING' 
   | 'GENERATING' 
   | 'REVIEWING' 
+  | 'PROMPTS_READY'
   | 'GENERATING_VIDEOS'
   | 'COMPLETED' 
   | 'ERROR';
+
+export interface TriggerVideoResponse {
+  project_id: string;
+  status: string;
+  message: string;
+  already_started: boolean;
+}
 
 export type SpecSource = 'SCRIPT' | 'USER' | 'INFERRED' | 'SYSTEM_DEFAULT';
 

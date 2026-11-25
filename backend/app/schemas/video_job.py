@@ -38,6 +38,6 @@ class ProjectVideoStatus(BaseModel):
     total_shots: int
     completed_shots: int
     failed_shots: int
-    status: Literal["IN_PROGRESS", "COMPLETED", "PARTIAL_FAILURE"]
+    status: Literal["NOT_STARTED", "IN_PROGRESS", "COMPLETED", "PARTIAL_FAILURE", "BLOCKED_COST_GUARD"]
     final_video_url: Optional[str] = None
     jobs: List[VideoJob] = []

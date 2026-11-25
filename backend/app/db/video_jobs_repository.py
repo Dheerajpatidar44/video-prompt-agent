@@ -156,12 +156,71 @@ def set_project_final_video_url(project_id: str, url: str) -> None:
     conn = get_db()
     try:
         conn.execute(
-            "UPDATE projects SET final_video_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            "UPDATE projects SET final_video_url = ?, status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (url, project_id),
         )
         conn.commit()
     except Exception:
         logger.exception(f"Failed to set final_video_url for project {project_id}")
         raise
+    finally:
+        conn.close()
+
+
+def update_project_status(project_id: str, status: str) -> None:
+    """Update project status cleanly in the projects table."""
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE projects SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, project_id),
+        )
+        conn.commit()
+    except Exception:
+        logger.exception(f"Failed to update status={status} for project {project_id}")
+        raise
+    finally:
+        conn.close()
+
+
+def try_claim_video_generation(project_id: str) -> Optional[str]:
+    """Atomically claim video generation lock in SQLite across workers.
+
+    Returns:
+      - 'CLAIMED' if this caller transitioned the project into GENERATING_VIDEOS.
+      - Existing status string if the project is already GENERATING_VIDEOS or COMPLETED.
+      - None if no row exists in the projects table.
+    """
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            """
+            UPDATE projects
+            SET status = 'GENERATING_VIDEOS', updated_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status NOT IN ('GENERATING_VIDEOS', 'COMPLETED')
+            """,
+            (project_id,),
+        )
+        conn.commit()
+        if cur.rowcount == 1:
+            return "CLAIMED"
+        row = conn.execute(
+            "SELECT status FROM projects WHERE id = ?", (project_id,)
+        ).fetchone()
+        return row["status"] if row else None
+    finally:
+        conn.close()
+
+
+def delete_failed_jobs_for_project(project_id: str) -> int:
+    """Delete terminal FAILED video jobs for a project so a clean retry can start."""
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "DELETE FROM video_jobs WHERE project_id = ? AND status = ?",
+            (project_id, VideoJobStatus.FAILED.value),
+        )
+        conn.commit()
+        return cur.rowcount
     finally:
         conn.close()

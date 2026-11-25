@@ -97,32 +97,26 @@ async def test_submit_with_reference_image(default_client_kwargs, monkeypatch):
     assert has_ref_image
 
 
-async def test_submit_with_reference_image_fallback_to_text(default_client_kwargs, monkeypatch):
+async def test_submit_with_reference_image_does_not_fallback_to_text(default_client_kwargs, monkeypatch):
     from unittest.mock import AsyncMock
     from google.genai import types
 
     mock_genai = _make_mock_genai_client()
-    mock_op = MagicMock()
-    mock_op.name = "models/veo-3.1-lite-generate-001/operations/op_fallback"
-    
-    # First call with image fails, second call without image succeeds
-    mock_genai.models.generate_videos.side_effect = [
-        Exception("Model does not support image input"),
-        mock_op,
-    ]
+    mock_genai.models.generate_videos.side_effect = Exception("Model rejected image input")
 
     client = VeoClient(**default_client_kwargs, client=mock_genai)
     dummy_img = types.Image(image_bytes=b"dummy_bytes", mime_type="image/jpeg")
     monkeypatch.setattr(client, "_load_reference_image", AsyncMock(return_value=dummy_img))
 
-    op_name = await client.submit_job(
-        prompt_text="a golden retriever running on grass",
-        duration_seconds=4.0,
-        aspect_ratio="16:9",
-        reference_image_url="https://res.cloudinary.com/dummy/image.jpg",
-    )
-    assert op_name == "models/veo-3.1-lite-generate-001/operations/op_fallback"
-    assert mock_genai.models.generate_videos.call_count == 2
+    with pytest.raises(PermanentVideoError, match="Failed to submit Veo job"):
+        await client.submit_job(
+            prompt_text="a golden retriever running on grass",
+            duration_seconds=4.0,
+            aspect_ratio="16:9",
+            reference_image_url="https://res.cloudinary.com/dummy/image.jpg",
+        )
+    # Must NOT fall back to text-only generation
+    assert mock_genai.models.generate_videos.call_count == 1
 
 
 async def test_submit_missing_name_raises(default_client_kwargs):
@@ -261,7 +255,7 @@ async def test_check_status_mappings(default_client_kwargs):
     assert r3["status"] == "FAILED"
     assert "Invalid input" in r3["error"]
 
-    # 4. FAILED without video (safety filter)
+    # 4. FAILED without video (safety filter, no reasons array)
     op_safe = MagicMock()
     op_safe.done = True
     op_safe.error = None
@@ -271,6 +265,36 @@ async def test_check_status_mappings(default_client_kwargs):
     assert r4["status"] == "FAILED"
     assert "blocked by safety filters" in r4["error"]
     assert r4.get("retryable") is False
+
+    # 5. FAILED with RAI celebrity/likeness reasons -> surfaces exact reason and marks image_safety_rejected
+    op_rai_img = MagicMock()
+    op_rai_img.done = True
+    op_rai_img.error = None
+    op_rai_img.response.generated_videos = []
+    op_rai_img.response.rai_media_filtered_count = 1
+    op_rai_img.response.rai_media_filtered_reasons = [
+        "Sorry, we can't create videos from input images containing celebrity or their likenesses."
+    ]
+    mock_genai.operations.get.return_value = op_rai_img
+    r5 = await client.check_status("op5")
+    assert r5["status"] == "FAILED"
+    assert "celebrity or their likenesses" in r5["error"]
+    assert r5.get("image_safety_rejected") is True
+    assert r5.get("retryable") is True
+
+    # 6. FAILED with non-image RAI reason (e.g. audio policy) -> surfaces reason, stays non-retryable
+    op_rai_audio = MagicMock()
+    op_rai_audio.done = True
+    op_rai_audio.error = None
+    op_rai_audio.response.generated_videos = []
+    op_rai_audio.response.rai_media_filtered_count = 1
+    op_rai_audio.response.rai_media_filtered_reasons = ["Audio prompt violates safety policy."]
+    mock_genai.operations.get.return_value = op_rai_audio
+    r6 = await client.check_status("op6")
+    assert r6["status"] == "FAILED"
+    assert "Audio prompt violates safety policy." in r6["error"]
+    assert r6.get("image_safety_rejected") is False
+    assert r6.get("retryable") is False
 
 
 async def test_check_status_operation_id_validation(default_client_kwargs):
@@ -324,3 +348,22 @@ async def test_api_key_not_leaked_in_logs_or_errors(default_client_kwargs, caplo
             await client.submit_job("prompt", 4.0, "16:9")
         assert "test_secret_key_123" not in str(exc_info.value)
         assert "test_secret_key_123" not in caplog.text
+
+
+async def test_1080p_preserves_4_6_8_durations(default_client_kwargs):
+    mock_genai = _make_mock_genai_client()
+    mock_op = MagicMock()
+    mock_op.name = "op_1080p"
+    mock_genai.models.generate_videos.return_value = mock_op
+
+    client = VeoClient(
+        **{**default_client_kwargs, "model": "veo-3.1-fast-generate-001", "resolution": "1080p"},
+        client=mock_genai,
+    )
+
+    for dur in (4.0, 6.0, 8.0):
+        mock_genai.models.generate_videos.reset_mock()
+        await client.submit_job("prompt", dur, "16:9")
+        cfg = mock_genai.models.generate_videos.call_args[1]["config"]
+        assert cfg.resolution == "1080p"
+        assert cfg.duration_seconds == int(dur)

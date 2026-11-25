@@ -15,6 +15,9 @@ import {
   Layers,
   ZoomIn,
   X,
+  Play,
+  AlertCircle,
+  Loader2,
 } from "lucide-react";
 import type { MasterScenePlan, PromptSet, ProjectImagesResponse, ShotImageAsset } from "@/lib/types";
 import { resolveImageUrl } from "@/lib/api/client";
@@ -26,6 +29,9 @@ export interface ResultsViewProps {
   projectImages?: ProjectImagesResponse | null;
   onReset?: () => void;
   onGenerateVideo?: () => void;
+  isReviewPending?: boolean;
+  isGeneratingVideo?: boolean;
+  videoGenerationError?: string | null;
 }
 
 export function CopyButton({ text }: { text: string }) {
@@ -72,6 +78,9 @@ export function ResultsView({
   projectImages,
   onReset,
   onGenerateVideo,
+  isReviewPending = false,
+  isGeneratingVideo = false,
+  videoGenerationError = null,
 }: ResultsViewProps) {
   // Lightbox Modal State
   const [activeModalImage, setActiveModalImage] = useState<{
@@ -96,17 +105,27 @@ export function ResultsView({
 
   return (
     <div className="flex flex-col gap-10">
-      {/* Success Banner */}
+      {/* Success / Review Banner */}
       <motion.div
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="flex flex-col items-center py-10 px-6 bg-[#22c55e]/[0.06] border border-[#22c55e]/15 rounded-2xl text-center gap-3"
+        className={`flex flex-col items-center py-10 px-6 rounded-2xl text-center gap-3 border ${
+          isReviewPending
+            ? "bg-purple-500/[0.06] border-purple-500/20"
+            : "bg-[#22c55e]/[0.06] border-[#22c55e]/15"
+        }`}
       >
-        <div className="p-4 bg-[#22c55e]/[0.12] rounded-full">
-          <CheckCircle2 size={40} color="#22c55e" />
+        <div className={`p-4 rounded-full ${isReviewPending ? "bg-purple-500/[0.15]" : "bg-[#22c55e]/[0.12]"}`}>
+          {isReviewPending ? (
+            <Sparkles size={40} className="text-purple-400" />
+          ) : (
+            <CheckCircle2 size={40} color="#22c55e" />
+          )}
         </div>
-        <h2 className="text-[26px] font-bold text-[var(--color-text-primary)]">Your Video Plan is Ready!</h2>
-        <p className="text-[14px] text-[var(--color-text-secondary)] max-w-[500px]">
+        <h2 className="text-[26px] font-bold text-[var(--color-text-primary)]">
+          {isReviewPending ? "Prompts & Keyframes Ready for Review" : "Your Video Plan is Ready!"}
+        </h2>
+        <p className="text-[14px] text-[var(--color-text-secondary)] max-w-[560px]">
           Successfully generated{" "}
           <strong className="text-[var(--color-text-primary)]">{scenePlan?.scenes.length ?? 0} scenes</strong>,{" "}
           <strong className="text-[var(--color-text-primary)]">{prompts?.prompts.length ?? 0} optimized prompts</strong>
@@ -115,8 +134,54 @@ export function ResultsView({
               {" "}and{" "}
               <strong className="text-purple-400">{projectImages.total_images} visual reference assets</strong>
             </span>
+          ) : null}
+          {prompts?.total_duration ? (
+            <span> ({Math.round(prompts.total_duration)}s total)</span>
           ) : null}.
+          {isReviewPending && (
+            <span className="block mt-1.5 text-xs text-gray-400">
+              Inspect the prompts and generated keyframe images below. Video rendering will only begin when you click Generate Video.
+            </span>
+          )}
         </p>
+
+        {videoGenerationError && (
+          <div className="mt-2 flex items-center gap-2 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/25 text-red-300 text-xs max-w-lg">
+            <AlertCircle size={15} className="shrink-0 text-red-400" />
+            <span>{videoGenerationError}</span>
+          </div>
+        )}
+
+        {isReviewPending && onGenerateVideo && (
+          <div className="flex flex-wrap items-center justify-center gap-3 mt-3">
+            {onReset && (
+              <button
+                onClick={onReset}
+                disabled={isGeneratingVideo}
+                className="px-6 py-2.5 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] text-[13px] font-medium cursor-pointer hover:bg-white/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Start New Project
+              </button>
+            )}
+            <button
+              onClick={onGenerateVideo}
+              disabled={isGeneratingVideo}
+              className="flex items-center gap-2 px-7 py-2.5 rounded-xl border-none bg-gradient-to-br from-blue-500 to-violet-500 text-white text-[14px] font-semibold cursor-pointer shadow-[0_4px_16px_rgba(59,130,246,0.35)] hover:opacity-90 transition disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {isGeneratingVideo ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Starting Video Generation...
+                </>
+              ) : (
+                <>
+                  <Play size={15} fill="currentColor" />
+                  Generate Video
+                </>
+              )}
+            </button>
+          </div>
+        )}
       </motion.div>
 
       {/* 1. Project Master Visual Assets (Global Anchors) */}
@@ -363,7 +428,8 @@ export function ResultsView({
           {onReset && (
             <button
               onClick={onReset}
-              className="px-8 py-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] text-[14px] font-medium cursor-pointer hover:bg-white/5 transition"
+              disabled={isGeneratingVideo}
+              className="px-8 py-3 rounded-xl border border-[var(--color-border-default)] bg-[var(--color-bg-elevated)] text-[var(--color-text-primary)] text-[14px] font-medium cursor-pointer hover:bg-white/5 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Start New Project
             </button>
@@ -371,9 +437,20 @@ export function ResultsView({
           {onGenerateVideo && (
             <button
               onClick={onGenerateVideo}
-              className="px-8 py-3 rounded-xl border-none bg-gradient-to-br from-blue-500 to-violet-500 text-white text-[14px] font-medium cursor-pointer shadow-[0_4px_12px_rgba(59,130,246,0.3)] hover:opacity-90 transition"
+              disabled={isGeneratingVideo}
+              className="flex items-center gap-2 px-8 py-3 rounded-xl border-none bg-gradient-to-br from-blue-500 to-violet-500 text-white text-[14px] font-semibold cursor-pointer shadow-[0_4px_12px_rgba(59,130,246,0.3)] hover:opacity-90 transition disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Generate Final Video
+              {isGeneratingVideo ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  Starting Video Generation...
+                </>
+              ) : (
+                <>
+                  <Play size={15} fill="currentColor" />
+                  Generate Video
+                </>
+              )}
             </button>
           )}
         </div>

@@ -17,6 +17,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 graph = build_graph()
 
+CHECKPOINT_DB_PATH = "data/test_memory.sqlite" if os.environ.get("TESTING") == "1" else "data/memory.sqlite"
+
 
 
 
@@ -38,8 +40,10 @@ async def _get_state_values(thread_id: str) -> dict:
     from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
     from app.graph.graph import build_graph, serde
 
+    os.makedirs("data", exist_ok=True)
     config = {"configurable": {"thread_id": thread_id}}
-    async with aiosqlite.connect("data/memory.sqlite") as conn:
+    async with aiosqlite.connect(CHECKPOINT_DB_PATH, timeout=30.0) as conn:
+        await conn.execute("PRAGMA journal_mode=WAL;")
         memory = AsyncSqliteSaver(conn, serde=serde)
         await memory.setup()
         graph = build_graph(memory)
@@ -65,6 +69,45 @@ def _status_str(state: dict) -> str:
     return status.value if hasattr(status, "value") else str(status or "completed")
 
 
+def _extract_first_keyframe_url(state: dict) -> Optional[str]:
+    """Return the first generated shot keyframe URL/path for thumbnail fallback."""
+    manifest = state.get("shot_image_manifest") or {}
+    for items in manifest.values():
+        if items and isinstance(items, list):
+            first = items[0]
+            if isinstance(first, dict):
+                url = first.get("url") or first.get("path")
+                if url:
+                    return url
+    return None
+
+
+def _sync_project_in_db(project_id: str, final_state: dict) -> None:
+    """Persist updated graph status and fallback keyframe thumbnail into projects table."""
+    try:
+        from app.db.database import get_db
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            status_val = _status_str(final_state)
+            thumb_url = _extract_first_keyframe_url(final_state)
+            if thumb_url:
+                cursor.execute(
+                    "UPDATE projects SET status = ?, thumbnail_url = COALESCE(thumbnail_url, ?), updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (status_val, thumb_url, project_id),
+                )
+            else:
+                cursor.execute(
+                    "UPDATE projects SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (status_val, project_id),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.error(f"Failed to update project status in DB: {e}")
+
+
 async def _run_graph(payload, config: dict) -> dict:
     """Dynamically construct AsyncSqliteSaver and compile graph per run."""
     import aiosqlite
@@ -73,7 +116,8 @@ async def _run_graph(payload, config: dict) -> dict:
     from app.graph.graph import build_graph, serde
 
     os.makedirs("data", exist_ok=True)
-    async with aiosqlite.connect("data/memory.sqlite") as conn:
+    async with aiosqlite.connect(CHECKPOINT_DB_PATH, timeout=30.0) as conn:
+        await conn.execute("PRAGMA journal_mode=WAL;")
         memory = AsyncSqliteSaver(conn, serde=serde)
         await memory.setup()
         graph = build_graph(memory)
@@ -202,20 +246,12 @@ async def analyze_script_endpoint(
         logger.exception("Graph execution failed")
         raise HTTPException(status_code=500, detail=f"Graph execution failed: {str(e)}")
  
-    try:
-        from app.db.database import get_db
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE projects SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (_status_str(final_state), script_doc.document_id))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        logger.error(f"Failed to update project status in DB: {e}")
+    _sync_project_in_db(script_doc.document_id, final_state)
 
     if final_state.get("error"):
         return AnalyzeResponse(
             thread_id=script_doc.document_id,
-            status="error",
+            status=AgentStatus.ERROR.value,
             script=script_doc.model_dump(),
             error=final_state["error"],
         )
@@ -245,7 +281,8 @@ async def _update_state(config: dict, state_update: dict):
     from app.graph.graph import build_graph, serde
 
     os.makedirs("data", exist_ok=True)
-    async with aiosqlite.connect("data/memory.sqlite") as conn:
+    async with aiosqlite.connect(CHECKPOINT_DB_PATH, timeout=30.0) as conn:
+        await conn.execute("PRAGMA journal_mode=WAL;")
         memory = AsyncSqliteSaver(conn, serde=serde)
         await memory.setup()
         local_graph = build_graph(memory)
@@ -269,17 +306,7 @@ async def submit_answers(thread_id: str, request: SubmitAnswersRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Graph resumption failed: {str(e)}")
 
-    try:
-        from app.db.database import get_db
-        conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("UPDATE projects SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (_status_str(final_state), thread_id))
-        conn.commit()
-        conn.close()
-    except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.error(f"Failed to update project status in DB: {e}")
+    _sync_project_in_db(thread_id, final_state)
 
     return {
         "status": final_state.get("status"),

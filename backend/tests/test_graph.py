@@ -116,8 +116,8 @@ async def test_graph_compiles_and_executes(mock_analyze, mock_build, mock_genera
     config = {"configurable": {"thread_id": "1"}}
     final_state = await graph.ainvoke(initial_state, config)
     
-    # Wait, the final status is now GENERATING_VIDEOS because we returned a valid prompt_set
-    assert final_state["status"] == AgentStatus.GENERATING_VIDEOS
+    # Phase 1 ends after prompts + keyframe images are ready for user review
+    assert final_state["status"] == AgentStatus.PROMPTS_READY
 
 
 def test_update_state_processes_answers():

@@ -230,7 +230,7 @@ async def test_full_interactive_flow_with_q_and_a_pause():
     )
     mock_reanalysis = ReAnalysisResult(gaps=[resolved_gap], questions=[])
 
-    from app.graph.nodes import re_analyze, build_video_spec, generate_scenes_and_prompts, review_prompts, generate_images, generate_videos
+    from app.graph.nodes import re_analyze, build_video_spec, generate_scenes_and_prompts, review_prompts, generate_images
     from app.schemas.specification import VideoSpecification, OutputRequirements
     from app.schemas.generation import GenerationResult, GeneratedPromptItem, GeneratedScenePlan
 
@@ -254,14 +254,12 @@ async def test_full_interactive_flow_with_q_and_a_pause():
             return mock_generation
         raise ValueError(f"Unexpected schema: {schema}")
 
-    with patch("app.llm.llm_service.generate_structured", new=AsyncMock(side_effect=mock_generate_structured_resumption)), \
-         patch("app.graph.nodes.generate_images.generate_images", new=AsyncMock(side_effect=lambda s: s)), \
-         patch("app.graph.nodes.generate_videos.generate_videos", new=AsyncMock(side_effect=lambda s: {**s, "status": AgentStatus.COMPLETED})):
+    with patch("app.llm.llm_service.generate_structured", new=AsyncMock(side_effect=mock_generate_structured_resumption)):
 
         final_state = await graph.ainvoke(None, config)
 
-        # After re-analysis resolved the gap, it successfully proceeded all the way to prompts & video generation phase!
-        assert final_state["status"] in (AgentStatus.GENERATING_VIDEOS, AgentStatus.COMPLETED)
+        # After re-analysis resolved the gap, Phase 1 completed prompts + images and paused for user review
+        assert final_state["status"] == AgentStatus.PROMPTS_READY
         assert final_state.get("prompt_set") is not None
         assert len(final_state["prompt_set"].prompts) == 1
         assert final_state["prompt_set"].prompts[0].prompt_text == "Cinematic garden shot"

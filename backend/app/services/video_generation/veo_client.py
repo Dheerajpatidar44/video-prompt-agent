@@ -205,36 +205,6 @@ class VeoClient(VideoGenerationClient):
                     **generate_kwargs
                 )
         except Exception as exc:
-            # Fallback: if job submission failed with reference_images or image, retry once in text-only mode
-            has_refs = bool(config_kwargs.get("reference_images") or "image" in generate_kwargs)
-            if has_refs:
-                logger.warning(
-                    f"Veo job submission with reference images/image failed ({exc}). "
-                    f"Falling back to text-only video generation..."
-                )
-                generate_kwargs.pop("image", None)
-                clean_kwargs = {k: v for k, v in config_kwargs.items() if k != "reference_images"}
-                generate_kwargs["config"] = types.GenerateVideosConfig(**clean_kwargs)
-                try:
-                    if hasattr(self._client, "aio") and hasattr(self._client.aio, "models"):
-                        operation = await self._client.aio.models.generate_videos(**generate_kwargs)
-                    else:
-                        operation = await asyncio.to_thread(
-                            self._client.models.generate_videos,
-                            **generate_kwargs
-                        )
-                except Exception as text_exc:
-                    exc = text_exc
-                else:
-                    operation_name = getattr(operation, "name", None)
-                    if operation_name:
-                        cost = estimate_clip_cost_usd(duration_seconds, self.resolution, model=self.model)
-                        logger.info(
-                            f"Submitted Veo job (text-fallback) {operation_name}: {duration}s at {self.resolution} "
-                            f"(est. cost ${cost:.2f})"
-                        )
-                        return operation_name
-
             exc_str = str(exc)
             if any(k in exc_str for k in ("401", "403", "PERMISSION_DENIED", "Authentication failed")):
                 raise PermanentVideoError(f"Authentication/permission error: {exc}") from exc
@@ -253,15 +223,16 @@ class VeoClient(VideoGenerationClient):
         )
         return operation_name
 
+    @staticmethod
+    def _build_operation_ref(operation_id: str) -> types.GenerateVideosOperation:
+        """Build a GenerateVideosOperation reference by name for status/download lookups."""
+        return types.GenerateVideosOperation.model_validate({"name": operation_id})
+
     async def check_status(self, external_job_id: str) -> dict:
         if not external_job_id:
             raise PermanentVideoError("Invalid operation id: must not be empty")
 
-        op_arg = (
-            types.GenerateVideosOperation.model_construct(name=external_job_id)
-            if isinstance(external_job_id, str)
-            else external_job_id
-        )
+        op_arg = self._build_operation_ref(external_job_id)
 
         try:
             if hasattr(self._client, "aio") and hasattr(self._client.aio, "operations"):
@@ -308,7 +279,47 @@ class VeoClient(VideoGenerationClient):
             if uri:
                 return {"status": "COMPLETED", "video_url": uri, "error": None}
 
-        # Check for safety filter block
+        # Check for safety filter block and surface exact RAI filtered reasons
+        raw_reasons = getattr(res, "rai_media_filtered_reasons", None) if res else None
+        raw_count = getattr(res, "rai_media_filtered_count", None) if res else None
+        reasons_list = (
+            [str(r) for r in raw_reasons if r]
+            if isinstance(raw_reasons, (list, tuple))
+            else []
+        )
+        filtered_count = raw_count if isinstance(raw_count, int) else 0
+
+        if reasons_list or filtered_count > 0:
+            logger.warning(
+                f"Veo operation {external_job_id} blocked by RAI safety filters "
+                f"(filtered_count={filtered_count}): {reasons_list}"
+            )
+
+        if reasons_list:
+            reasons_joined = "; ".join(reasons_list)
+            reasons_lower = reasons_joined.lower()
+            is_image_safety = any(
+                term in reasons_lower
+                for term in (
+                    "input image",
+                    "celebrity",
+                    "likeness",
+                    "photorealistic",
+                    "image",
+                    "face",
+                    "15236754",
+                    "usage guidelines",
+                )
+            )
+            return {
+                "status": "FAILED",
+                "video_url": None,
+                "error": f"Video generation completed without video (blocked by safety filters: {reasons_joined})",
+                "retryable": is_image_safety,
+                "image_safety_rejected": is_image_safety,
+                "rai_filtered_reasons": reasons_list,
+            }
+
         return {
             "status": "FAILED",
             "video_url": None,
@@ -320,11 +331,7 @@ class VeoClient(VideoGenerationClient):
         if video_url in self._video_cache:
             return self._video_cache.pop(video_url)
 
-        op_arg = (
-            types.GenerateVideosOperation.model_construct(name=video_url)
-            if isinstance(video_url, str)
-            else video_url
-        )
+        op_arg = self._build_operation_ref(video_url)
 
         try:
             if hasattr(self._client, "aio") and hasattr(self._client.aio, "operations"):

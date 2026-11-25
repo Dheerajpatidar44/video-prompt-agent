@@ -169,9 +169,10 @@ export default function ProjectsPage() {
                         <div className="flex items-center justify-between mt-2 pt-4 border-t border-white/5">
                           <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1.5 rounded-full ${isCompleted ? 'bg-[#00ff9d]/10 text-[#00ff9d] border border-[#00ff9d]/20' :
                               project.status === 'ERROR' ? 'bg-[#ff3366]/10 text-[#ff3366] border border-[#ff3366]/20' :
-                                'bg-[#33a1ff]/10 text-[#33a1ff] border border-[#33a1ff]/20'
+                                project.status === 'PROMPTS_READY' ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30' :
+                                  'bg-[#33a1ff]/10 text-[#33a1ff] border border-[#33a1ff]/20'
                             }`}>
-                            {project.status}
+                            {project.status === 'PROMPTS_READY' ? 'PROMPTS READY' : project.status}
                           </span>
 
                           <div className="flex gap-2">

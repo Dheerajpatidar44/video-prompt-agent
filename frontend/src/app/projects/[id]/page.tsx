@@ -27,21 +27,31 @@ export default function ProjectDetailsPage() {
   const [previewAspect, setPreviewAspect] = useState<number | null>(null);
   const [previewProgress, setPreviewProgress] = useState(0);
   const [showPromptsWhileGenerating, setShowPromptsWhileGenerating] = useState(false);
+  const [reviewReport, setReviewReport] = useState<any | null>(null);
+  const [promptsLoaded, setPromptsLoaded] = useState(false);
+  const [startingVideo, setStartingVideo] = useState(false);
+  const [videoStartError, setVideoStartError] = useState<string | null>(null);
+  const [pollTrigger, setPollTrigger] = useState(0);
 
+  // 1. Fetch prompts, scene plan, and visual assets on initial load
   useEffect(() => {
     if (!id) return;
-
     let isMounted = true;
-    let interval: NodeJS.Timeout | null = null;
+    setPromptsLoaded(false);
 
-    // 1. Fetch prompts, scene plan, and visual assets on initial load
     ApiClient.getPrompts(id)
       .then((promptRes) => {
         if (isMounted && promptRes?.prompt_set) {
           setPrompts(promptRes.prompt_set);
+          if (promptRes.review_report) {
+            setReviewReport(promptRes.review_report);
+          }
         }
       })
-      .catch(() => { });
+      .catch(() => { })
+      .finally(() => {
+        if (isMounted) setPromptsLoaded(true);
+      });
 
     ApiClient.getScenePlan(id)
       .then((spRes) => {
@@ -59,47 +69,64 @@ export default function ProjectDetailsPage() {
       })
       .catch(() => { });
 
-    // 2. Poll video status only while actively generating
-    const checkVideoStatus = async () => {
+    return () => {
+      isMounted = false;
+    };
+  }, [id]);
+
+  // 2. Poll video status only while actively generating
+  useEffect(() => {
+    if (!id) return;
+
+    let isMounted = true;
+    let interval: NodeJS.Timeout | null = null;
+
+    const checkVideoStatus = async (): Promise<boolean> => {
       try {
         setError(null);
         const vData = await ApiClient.getVideoStatus(id).catch(() => null);
 
-        if (!isMounted) return;
+        if (!isMounted) return true;
 
         if (vData && vData.status) {
           setVideoStatus(vData);
 
-          // Stop polling if video is completed, failed, or ready
           const isDone =
-            vData.final_video_url ||
+            vData.status === "NOT_STARTED" ||
+            !!vData.final_video_url ||
             vData.status === "COMPLETED" ||
             vData.status === "FAILED" ||
-            (vData.status === "PARTIAL_FAILURE" && vData.jobs?.some((j: any) => j.status === "COMPLETED"));
+            vData.status === "PARTIAL_FAILURE";
 
-          if (isDone && interval) {
-            clearInterval(interval);
-            interval = null;
-            // Refresh project images once generation completes
-            ApiClient.getProjectImages(id)
-              .then((imgRes) => {
-                if (isMounted && imgRes) setProjectImages(imgRes);
-              })
-              .catch(() => { });
+          if (isDone) {
+            if (interval) {
+              clearInterval(interval);
+              interval = null;
+            }
+            if (vData.status !== "NOT_STARTED") {
+              ApiClient.getProjectImages(id)
+                .then((imgRes) => {
+                  if (isMounted && imgRes) setProjectImages(imgRes);
+                })
+                .catch(() => { });
+            }
           }
+          return isDone;
         } else {
-          // Fallback for legacy project or no active video jobs
+          // Fallback for legacy project or missing project
           setVideoStatus({ status: "COMPLETED", final_video_url: null });
           if (interval) {
             clearInterval(interval);
             interval = null;
           }
+          return true;
         }
       } catch (err: any) {
         if (isMounted) {
           console.error(err);
           setError(err.message || "Failed to load project details");
         }
+        return false;
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -107,10 +134,8 @@ export default function ProjectDetailsPage() {
       }
     };
 
-    // First immediate check
-    checkVideoStatus().then(() => {
-      // Only start interval if still generating and mounted
-      if (isMounted) {
+    checkVideoStatus().then((isDone) => {
+      if (isMounted && !isDone) {
         interval = setInterval(checkVideoStatus, 5000);
       }
     });
@@ -119,7 +144,35 @@ export default function ProjectDetailsPage() {
       isMounted = false;
       if (interval) clearInterval(interval);
     };
-  }, [id]);
+  }, [id, pollTrigger]);
+
+  const handleGenerateVideo = async () => {
+    if (!id || startingVideo) return;
+    try {
+      setStartingVideo(true);
+      setVideoStartError(null);
+      const res = await ApiClient.startVideoGeneration(id);
+      if (res.status === "BLOCKED_COST_GUARD") {
+        setVideoStartError(res.message || "Video generation blocked by project safety limits.");
+        setStartingVideo(false);
+        return;
+      }
+      setVideoStatus({
+        project_id: id,
+        total_shots: prompts?.prompts?.length || 0,
+        completed_shots: 0,
+        failed_shots: 0,
+        status: "IN_PROGRESS",
+        final_video_url: null,
+        jobs: [],
+      });
+      setStartingVideo(false);
+      setPollTrigger((prev) => prev + 1);
+    } catch (err: any) {
+      setVideoStartError(err.message || "Failed to start video generation");
+      setStartingVideo(false);
+    }
+  };
 
   const handleBack = () => {
     router.push("/projects");
@@ -132,7 +185,7 @@ export default function ProjectDetailsPage() {
         <Header />
 
         <main className={`flex-1 overflow-y-auto ${showFullVideo ? "p-0" : "p-6 md:p-8 lg:p-12"} relative z-0 flex flex-col`}>
-          {loading && !videoStatus ? (
+          {(loading && !videoStatus) || (videoStatus?.status === 'NOT_STARTED' && !promptsLoaded) ? (
             <div className="flex flex-col items-center justify-center p-32 space-y-4">
               <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-[#ff3366]"></div>
               <p className="text-gray-400 font-medium">Loading project details...</p>
@@ -293,6 +346,36 @@ export default function ProjectDetailsPage() {
                 )}
               </div>
             </div>
+          ) : videoStatus?.status === 'NOT_STARTED' ? (
+            <div className="max-w-5xl mx-auto w-full py-8 px-4 sm:px-6">
+              {prompts && prompts.prompts && prompts.prompts.length > 0 ? (
+                <ResultsView
+                  scenePlan={scenePlan}
+                  prompts={prompts}
+                  reviewReport={reviewReport}
+                  projectImages={projectImages}
+                  isReviewPending={true}
+                  isGeneratingVideo={startingVideo}
+                  videoGenerationError={videoStartError}
+                  onReset={() => router.push("/")}
+                  onGenerateVideo={handleGenerateVideo}
+                />
+              ) : (
+                <div className="flex flex-col items-center justify-center p-24 space-y-4 text-center">
+                  <AlertCircle size={40} className="text-gray-500" />
+                  <h3 className="text-xl font-medium text-white">Prompts Not Ready Yet</h3>
+                  <p className="text-gray-400 max-w-md">
+                    This project has not generated prompts or visual keyframes yet.
+                  </p>
+                  <button
+                    onClick={() => router.push("/")}
+                    className="mt-4 px-6 py-2.5 bg-blue-600 hover:bg-blue-700 rounded-xl text-white font-medium text-sm transition cursor-pointer"
+                  >
+                    Create New Video
+                  </button>
+                </div>
+              )}
+            </div>
           ) : (videoStatus?.status === 'COMPLETED' || videoStatus?.status === 'PARTIAL_FAILURE' || videoStatus?.status === 'FAILED') ? (
             prompts && prompts.prompts && prompts.prompts.length > 0 ? (
               <div className="max-w-5xl mx-auto w-full py-8 px-4 sm:px-6 flex flex-col gap-6">
@@ -305,23 +388,42 @@ export default function ProjectDetailsPage() {
                     <div>
                       <h4 className="text-sm font-semibold text-amber-200">Video File Not Generated</h4>
                       <p className="text-xs text-gray-400">
-                        Video rendering did not output a stitched file, but all cinematic prompts and scene plans for this project are fully available below.
+                        {videoStatus?.jobs?.find((j: any) => j.error_message)?.error_message ||
+                          "Video rendering did not output a stitched file, but all cinematic prompts and scene plans for this project are fully available below."}
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => router.push("/")}
-                    className="self-start sm:self-center px-4 py-2 bg-white/10 hover:bg-white/15 rounded-xl text-white font-medium text-xs transition cursor-pointer shrink-0"
-                  >
-                    Create New Video
-                  </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={handleGenerateVideo}
+                      disabled={startingVideo}
+                      className="px-4 py-2 bg-gradient-to-br from-blue-500 to-violet-500 hover:opacity-90 rounded-xl text-white font-semibold text-xs transition cursor-pointer disabled:opacity-60"
+                    >
+                      {startingVideo ? "Starting..." : "Retry Video Generation"}
+                    </button>
+                    <button
+                      onClick={() => router.push("/")}
+                      className="px-4 py-2 bg-white/10 hover:bg-white/15 rounded-xl text-white font-medium text-xs transition cursor-pointer"
+                    >
+                      Create New Video
+                    </button>
+                  </div>
                 </div>
+
+                {videoStartError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/25 text-red-300 text-xs">
+                    {videoStartError}
+                  </div>
+                )}
 
                 {/* ResultsView with Scene Plan, Prompts & Images */}
                 <ResultsView
                   scenePlan={scenePlan}
                   prompts={prompts}
+                  reviewReport={reviewReport}
                   projectImages={projectImages}
+                  isGeneratingVideo={startingVideo}
+                  onGenerateVideo={handleGenerateVideo}
                   onReset={() => router.push("/")}
                 />
               </div>

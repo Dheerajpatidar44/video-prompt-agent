@@ -32,6 +32,8 @@ _IMAGE_SAFETY_TERMS = (
     "input image",
     "image violates",
     "image not supported",
+    "celebrity",
+    "likeness",
 )
 
 
@@ -78,22 +80,11 @@ async def _handle_failed_job(job, result: dict, client) -> None:
     max_retries = getattr(settings, "video_max_retries", 2)
     max_img_retries = getattr(settings, "video_image_regen_max_retries", 1)
     
-    if result.get("retryable") is False:
-        logger.error(
-            f"Job {job.job_id} failed with non-retryable error: {error_msg}. Terminal FAILED."
-        )
-        repo.update_job_status(
-            job.job_id,
-            VideoJobStatus.FAILED,
-            error_message=error_msg,
-            completed_at=datetime.now(UTC)
-        )
-        _job_error_counts.pop(job.job_id, None)
-        _image_regen_counts.pop(job.job_id, None)
-        return
-
-    # Check if failure is due to Veo image-safety policy rejection (e.g. 15236754)
-    is_image_rejection = any(term in err_str for term in _IMAGE_SAFETY_TERMS)
+    # Check if failure is due to Veo image-safety policy rejection (e.g. 15236754 or celebrity likeness)
+    # Check this BEFORE retryable=False so image regeneration retry still runs.
+    is_image_rejection = bool(result.get("image_safety_rejected")) or any(
+        term in err_str for term in _IMAGE_SAFETY_TERMS
+    )
     img_regen_used = _image_regen_counts.get(job.job_id, 0)
 
     if is_image_rejection:
@@ -119,6 +110,20 @@ async def _handle_failed_job(job, result: dict, client) -> None:
             _job_error_counts.pop(job.job_id, None)
             _image_regen_counts.pop(job.job_id, None)
             return
+
+    if result.get("retryable") is False:
+        logger.error(
+            f"Job {job.job_id} failed with non-retryable error: {error_msg}. Terminal FAILED."
+        )
+        repo.update_job_status(
+            job.job_id,
+            VideoJobStatus.FAILED,
+            error_message=error_msg,
+            completed_at=datetime.now(UTC)
+        )
+        _job_error_counts.pop(job.job_id, None)
+        _image_regen_counts.pop(job.job_id, None)
+        return
 
     if job.retry_count < max_retries:
         new_count = job.retry_count + 1
@@ -157,15 +162,6 @@ async def _handle_failed_job(job, result: dict, client) -> None:
                 }
                 for item in shot_items if item.get("path")
             ][:3]
-
-            # Defensive Fallback: If error was related to reference image incompatibility,
-            # drop the references on retry to guarantee video generation without getting permanently stuck.
-            if any(term in err_str for term in ["mix of references", "reference to video", "reference image", "unsupported reference"]):
-                logger.warning(
-                    f"Job {job.job_id} encountered reference incompatibility ({error_msg}). "
-                    f"Falling back to text-only mode on retry {new_count} to guarantee successful video generation."
-                )
-                structured_assets = None
 
             ext_job_id = await client.submit_job(
                 prompt_text=prompt.prompt_text,
@@ -226,9 +222,14 @@ async def _regenerate_image_and_resubmit(job, error_msg: str, client, new_img_co
 
         # Determine keyframe image prompt (same field used by generate_images node)
         raw_kf_prompt = getattr(prompt, "keyframe_image_prompt", None)
-        effective_prompt = (
+        base_prompt = (
             raw_kf_prompt if (raw_kf_prompt and raw_kf_prompt.strip())
             else prompt.prompt_text
+        )
+        # Add subtle facial/framing variation so regenerated keyframe avoids identical celebrity/safety false positive
+        effective_prompt = (
+            f"Create an original fictional non-celebrity character appearance with subtle variation in "
+            f"facial features, framing, and lighting while preserving the exact scene composition: {base_prompt}"
         )
 
         # Collect user reference images so the regenerated image
@@ -326,6 +327,16 @@ async def _check_and_trigger_stitching(project_id: str) -> None:
     if not all(job.status in terminal_states for job in jobs):
         return  # still waiting for some jobs
 
+    # If every single job failed, mark project FAILED so it doesn't stay stuck on GENERATING_VIDEOS
+    if all(job.status == VideoJobStatus.FAILED for job in jobs):
+        logger.warning(f"All {len(jobs)} video jobs failed for project {project_id}. Marking project FAILED.")
+        if hasattr(repo, "update_project_status"):
+            try:
+                repo.update_project_status(project_id, "FAILED")
+            except Exception as exc:
+                logger.warning(f"Could not update project {project_id} status to FAILED: {exc}")
+        return
+
     # All jobs terminal. Trigger stitch.
     # To prevent multiple concurrent stitches for the same project if polls race,
     # we synchronously mark a dummy URL (or we just let the DB handle it cleanly).
@@ -342,6 +353,11 @@ async def _check_and_trigger_stitching(project_id: str) -> None:
         await stitch_project_videos(project_id)
     except Exception as exc:
         logger.exception(f"Stitching failed for project {project_id}: {exc}")
+        if hasattr(repo, "update_project_status"):
+            try:
+                repo.update_project_status(project_id, "FAILED")
+            except Exception:
+                pass
         # The project stays with final_video_url = None, and API routes will
         # report PARTIAL_FAILURE with no video.
 

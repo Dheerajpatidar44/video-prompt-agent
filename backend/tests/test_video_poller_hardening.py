@@ -300,3 +300,131 @@ async def test_poller_fails_permanently_when_image_regen_retries_exhausted(fake_
     assert fake_repo.updates[0][1] == VideoJobStatus.FAILED
     assert "persisted after 1 image regeneration attempt" in fake_repo.updates[0][2]["error_message"]
     assert "job_safety_2" not in poller._image_regen_counts
+
+
+@pytest.mark.asyncio
+async def test_poller_regenerates_image_on_celebrity_likeness_rai(fake_repo, fake_client, monkeypatch):
+    poller._image_regen_counts.clear()
+    poller._job_error_counts.clear()
+
+    job = VideoJob(
+        job_id="job_celeb_1", project_id="p1", prompt_id="pr1", shot_id="s1", sequence_number=1,
+        status=VideoJobStatus.SUBMITTED, external_job_id="ext_celeb"
+    )
+    fake_repo.jobs.append(job)
+
+    async def mock_check_status(*a):
+        return {
+            "status": "FAILED",
+            "error": "Video generation completed without video (blocked by safety filters: Sorry, we can't create videos from input images containing celebrity or their likenesses.)",
+            "image_safety_rejected": True,
+            "retryable": True,
+        }
+
+    fake_client.check_status = mock_check_status
+
+    from unittest.mock import MagicMock
+    fake_prompt = MagicMock()
+    fake_prompt.prompt_id = "pr1"
+    fake_prompt.shot_id = "s1"
+    fake_prompt.keyframe_image_prompt = "Two executives seated in boardroom"
+    fake_prompt.prompt_text = "Executives sliding folder"
+    fake_prompt.duration_seconds = 8
+    fake_prompt.negative_constraints = None
+
+    fake_spec = MagicMock()
+    fake_spec.output_requirements.aspect_ratio = "16:9"
+
+    fake_state = {
+        "prompt_set": MagicMock(prompts=[fake_prompt]),
+        "video_specification": fake_spec,
+        "reference_images": {},
+    }
+
+    async def fake_get_state(project_id):
+        return fake_state
+
+    import app.api.routes.scripts as scripts
+    monkeypatch.setattr(scripts, "_get_state_values", fake_get_state)
+
+    class FakeImgService:
+        async def generate_image(self, prompt, aspect_ratio, ref_images, custom_filename):
+            return f"static/generated_images/{custom_filename}"
+
+    import app.services.image_generation.gemini_image_service as gis
+    monkeypatch.setattr(gis, "get_gemini_image_service", lambda: FakeImgService())
+
+    submitted_ref_assets = None
+    async def mock_submit(prompt_text, duration_seconds, aspect_ratio, negative_prompt, reference_assets):
+        nonlocal submitted_ref_assets
+        submitted_ref_assets = reference_assets
+        return "ext_celeb_regen"
+
+    fake_client.submit_job = mock_submit
+
+    await poller.run_poller_loop()
+
+    assert submitted_ref_assets is not None
+    assert submitted_ref_assets[0]["path"] == "static/generated_images/p1_s1_keyframe_regen1.png"
+    assert fake_repo.updates[0][1] == VideoJobStatus.SUBMITTED
+    assert fake_repo.updates[0][2]["external_job_id"] == "ext_celeb_regen"
+
+
+@pytest.mark.asyncio
+async def test_poller_retry_preserves_reference_assets_no_text_fallback(fake_repo, fake_client, monkeypatch):
+    poller._image_regen_counts.clear()
+    poller._job_error_counts.clear()
+
+    job = VideoJob(
+        job_id="job_keep_ref", project_id="p1", prompt_id="pr1", shot_id="s1", sequence_number=1,
+        status=VideoJobStatus.SUBMITTED, external_job_id="ext_keep_ref"
+    )
+    fake_repo.jobs.append(job)
+
+    async def mock_check_status(*a):
+        return {
+            "status": "FAILED",
+            "error": "Transient error with reference image payload",
+        }
+
+    fake_client.check_status = mock_check_status
+
+    from unittest.mock import MagicMock
+    fake_prompt = MagicMock()
+    fake_prompt.prompt_id = "pr1"
+    fake_prompt.shot_id = "s1"
+    fake_prompt.prompt_text = "Boardroom shot"
+    fake_prompt.duration_seconds = 8
+    fake_prompt.negative_constraints = None
+
+    fake_spec = MagicMock()
+    fake_spec.output_requirements.aspect_ratio = "16:9"
+
+    fake_state = {
+        "prompt_set": MagicMock(prompts=[fake_prompt]),
+        "video_specification": fake_spec,
+        "shot_image_manifest": {
+            "s1": [{"path": "static/generated_images/p1_s1_keyframe.png", "role": "MASTER_KEYFRAME", "asset_id": "s1_kf", "reused": False}]
+        },
+    }
+
+    async def fake_get_state(project_id):
+        return fake_state
+
+    import app.api.routes.scripts as scripts
+    monkeypatch.setattr(scripts, "_get_state_values", fake_get_state)
+
+    captured_assets = None
+    async def mock_submit(prompt_text, duration_seconds, aspect_ratio, negative_prompt, reference_assets):
+        nonlocal captured_assets
+        captured_assets = reference_assets
+        return "ext_resubmitted"
+
+    fake_client.submit_job = mock_submit
+
+    await poller.run_poller_loop()
+
+    assert captured_assets is not None
+    assert captured_assets[0]["path"] == "static/generated_images/p1_s1_keyframe.png"
+    assert fake_repo.updates[0][1] == VideoJobStatus.SUBMITTED
+

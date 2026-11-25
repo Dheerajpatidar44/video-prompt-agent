@@ -1,9 +1,9 @@
 """Cost calculation helpers for video generation (Google Veo 3.1).
 
-Veo 3.1 generates clips at fixed durations: 4, 6, or 8 seconds.
-1080p supports 8 s only.  A shot planned shorter than 4 s still produces
-(and bills) a 4 s clip.  A shot planned longer than 8 s cannot be generated
-in one clip — it is capped at 8 s.
+Veo 3.1 generates clips at fixed durations: 4, 6, or 8 seconds across both
+720p and 1080p.  A shot planned shorter than 4 s still produces (and bills)
+a 4 s clip.  A shot planned longer than 8 s cannot be generated in one clip —
+it is capped at 8 s.
 
 Price per second (verify against https://ai.google.dev/gemini-api/docs/pricing#veo-3.1):
   Veo 3.1 Lite: 720p -> $0.05/s, 1080p -> $0.08/s
@@ -22,11 +22,11 @@ MAX_CLIP_SECONDS = 8
 def billed_seconds(duration_seconds: float, resolution: str = "720p") -> int:
     """Snap a requested duration to a duration Veo 3.1 actually generates (and bills).
 
-    1080p supports 8 s only. Otherwise round UP to 4/6/8; anything above 8 is capped at 8.
-    round() first so float noise (6.0000000001) never bumps a clip to the next tier.
+    Both 720p and 1080p support 4, 6, and 8 second clips. Round UP to 4/6/8;
+    anything above 8 is capped at 8. round() first so float noise (6.0000000001)
+    never bumps a clip to the next tier.
     """
-    if resolution == "1080p":
-        return 8
+    _ = resolution  # Kept in signature for caller compatibility
     d = round(float(duration_seconds), 3)
     for allowed in ALLOWED_DURATIONS:
         if d <= allowed:

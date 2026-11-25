@@ -17,6 +17,7 @@ from typing import Dict, List, Any
 
 from app.core.config import settings
 from app.graph.state import AgentState
+from app.schemas.agent import AgentStatus
 from app.services.image_generation.gemini_image_service import (
     get_gemini_image_service,
     ImageGenerationError,
@@ -61,15 +62,23 @@ def _mock_manifest(prompt_set) -> Dict[str, List[Dict[str, Any]]]:
     return manifest
 
 
+def _phase_one_status(state: AgentState) -> AgentStatus:
+    """Preserve ERROR if an upstream node failed; otherwise mark Phase 1 complete."""
+    if state.get("status") == AgentStatus.ERROR or state.get("error"):
+        return AgentStatus.ERROR
+    return AgentStatus.PROMPTS_READY
+
+
 async def generate_images(state: AgentState) -> AgentState:
     """Generates one cohesive Master Keyframe image per shot, driven by script and user references."""
     prompt_set = state.get("prompt_set")
     spec = state.get("video_specification")
     project_id = state.get("project_id") or "default_project"
+    next_status = _phase_one_status(state)
 
     if not prompt_set or not prompt_set.prompts:
         logger.warning("generate_images: prompt_set is empty, skipping image generation.")
-        return state
+        return {**state, "status": next_status}
 
     # Guard: mock mode or missing API key → return structured mock manifest, no API calls
     has_api_key = bool(settings.google_api_key and settings.google_api_key.get_secret_value())
@@ -79,13 +88,18 @@ async def generate_images(state: AgentState) -> AgentState:
             f"(use_mock_image_api={settings.use_mock_image_api}, has_api_key={has_api_key}). "
             "Returning mock keyframe manifest."
         )
-        return {**state, "master_asset_catalog": {}, "shot_image_manifest": _mock_manifest(prompt_set)}
+        return {
+            **state,
+            "master_asset_catalog": {},
+            "shot_image_manifest": _mock_manifest(prompt_set),
+            "status": next_status,
+        }
 
     try:
         image_service = get_gemini_image_service()
     except ImageGenerationError as exc:
         logger.warning(f"generate_images: Image service unavailable ({exc}). Skipping image generation.")
-        return state
+        return {**state, "status": next_status}
 
     # Derive aspect ratio dynamically from VideoSpecification — never hardcoded
     target_aspect = "16:9"
@@ -176,4 +190,5 @@ async def generate_images(state: AgentState) -> AgentState:
         **state,
         "master_asset_catalog": master_asset_catalog,
         "shot_image_manifest": shot_manifest,
+        "status": next_status,
     }

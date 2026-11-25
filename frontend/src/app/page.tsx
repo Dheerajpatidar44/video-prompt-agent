@@ -12,6 +12,7 @@ import { ReferenceUploads } from "@/components/sections/ReferenceUploads";
 import { VideoToolSelector } from "@/components/sections/VideoToolSelector";
 
 import { QuestionsView } from "@/components/sections/QuestionsView";
+import { ResultsView } from "@/components/sections/ResultsView";
 import { FinalVideoView } from "@/components/sections/FinalVideoView";
 import { useVideoAgent } from "@/hooks/useVideoAgent";
 
@@ -38,7 +39,7 @@ export default function HomePage() {
   const router = useRouter();
 
   // Agent Logic
-  const { state, analyzeScript, submitAnswers, setAnswer, reset } = useVideoAgent();
+  const { state, analyzeScript, submitAnswers, startVideoGeneration, setAnswer, reset } = useVideoAgent();
 
   // Automatically redirect to dedicated project page once video generation begins
   useEffect(() => {
@@ -70,6 +71,10 @@ export default function HomePage() {
     if (res && (res.status === "GENERATING_VIDEOS" || res.status === "COMPLETED")) {
       router.push(`/projects/${state.threadId}`);
     }
+  };
+
+  const handleStartVideo = async () => {
+    await startVideoGeneration();
   };
 
   const handleReset = () => {
@@ -338,7 +343,29 @@ export default function HomePage() {
               </motion.div>
             )}
 
-            {/* ResultsView (Prompts) removed as requested */}
+            {/* ---- Prompts & Keyframes Review (Human-in-the-Loop Gate) ---- */}
+            {state.status === "PROMPTS_READY" && (
+              <motion.div
+                key="prompts_ready"
+                variants={pageVariants}
+                initial="initial"
+                animate="animate"
+                exit="exit"
+                className="max-w-5xl mx-auto w-full pb-12"
+              >
+                <ResultsView
+                  scenePlan={state.scenePlan}
+                  prompts={state.prompts}
+                  reviewReport={state.reviewReport}
+                  projectImages={state.projectImages}
+                  isReviewPending={true}
+                  isGeneratingVideo={state.isSubmitting}
+                  videoGenerationError={state.error}
+                  onReset={handleReset}
+                  onGenerateVideo={handleStartVideo}
+                />
+              </motion.div>
+            )}
 
             {/* ---- Error ---- */}
             {state.status === "ERROR" && (

@@ -1,4 +1,4 @@
-import type { AnalyzeResponse, Question, Answer, VideoSpecification, MasterScenePlan, PromptSet, ProjectImagesResponse } from '../types';
+import type { AnalyzeResponse, Question, Answer, VideoSpecification, MasterScenePlan, PromptSet, ProjectImagesResponse, TriggerVideoResponse } from '../types';
 
 // In a real app, this should come from process.env or $env/static/public
 const API_BASE_URL = 'http://127.0.0.1:8000/api/v1';
@@ -123,5 +123,12 @@ export class ApiClient {
   }> {
     const response = await fetch(`${API_BASE_URL}/projects/${projectId}/video-status`);
     return this.handleResponse(response);
+  }
+
+  static async startVideoGeneration(projectId: string): Promise<TriggerVideoResponse> {
+    const response = await fetch(`${API_BASE_URL}/projects/${projectId}/generate-video`, {
+      method: 'POST',
+    });
+    return this.handleResponse<TriggerVideoResponse>(response);
   }
 }

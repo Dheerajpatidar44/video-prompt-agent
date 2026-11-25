@@ -10,6 +10,7 @@ import asyncio
 import logging
 import uuid
 from datetime import datetime, UTC
+from typing import Any
 
 from app.core.config import settings
 from app.graph.state import AgentState
@@ -20,6 +21,9 @@ from app.services.video_generation.client_factory import get_video_client
 from app.services.video_generation.cost import billed_seconds, estimate_project_cost_usd
 
 logger = logging.getLogger(__name__)
+
+# Strong references prevent asyncio tasks from being garbage-collected mid-flight
+_background_tasks: set[asyncio.Task] = set()
 
 
 async def generate_videos(state: AgentState) -> AgentState:
@@ -68,8 +72,10 @@ async def generate_videos(state: AgentState) -> AgentState:
     concurrency_limit = getattr(settings, "video_generation_concurrency_limit", 3)
     semaphore = asyncio.Semaphore(concurrency_limit)
 
-    async def _submit_single_job(prompt) -> None:
-        # Create DB row
+    # Synchronously persist all QUEUED job rows BEFORE returning so immediate
+    # frontend polls never observe an empty video_jobs table.
+    jobs_and_prompts: list[tuple[VideoJob, Any]] = []
+    for prompt in prompt_set.prompts:
         job = VideoJob(
             job_id=f"vjob_{uuid.uuid4().hex[:12]}",
             project_id=project_id,
@@ -81,20 +87,14 @@ async def generate_videos(state: AgentState) -> AgentState:
             duration_seconds=prompt.duration_seconds,
         )
         repo.create_job(job)
+        jobs_and_prompts.append((job, prompt))
 
+    async def _submit_single_job(job: VideoJob, prompt) -> None:
         # Wait for concurrency slot
         async with semaphore:
             try:
                 # Find reference image if any
                 ref_url = None
-                # Check continuity bible characters matching this shot's entities
-                # For simplicity in this step, we just use the first character's image if available
-                # from the spec.reference_assets. 
-                # (A full implementation would parse `prompt.source_actions` to match character names)
-                # We'll map reference images from spec.reference_assets if they exist.
-                # Actually, the prompt object itself doesn't explicitly store its reference asset.
-                # The instructions say: "If a relevant reference image URL exists for the shot's primary character/product (check what's available in spec/continuity_bible), pass it as reference_image_url".
-                # For now, let's just grab the first character or product reference asset if it exists.
                 for asset in spec.reference_assets:
                     path = getattr(asset, "reference_path", "") or ""
                     if asset.type in ("CHARACTER_REFERENCE", "PRODUCT_IMAGE") and path.startswith(("http://", "https://")):
@@ -123,10 +123,10 @@ async def generate_videos(state: AgentState) -> AgentState:
                     aspect_ratio=spec.output_requirements.aspect_ratio or "16:9",
                     negative_prompt=prompt.negative_constraints,
                     reference_image_url=ref_url,
-                    reference_image_urls=ref_urls if 'ref_urls' in locals() and ref_urls else ([ref_url] if ref_url else None),
+                    reference_image_urls=ref_urls if ref_urls else ([ref_url] if ref_url else None),
                     reference_assets=shot_items[:3] if shot_items else None,
                 )
-                
+
                 # Update DB
                 repo.update_job_status(
                     job.job_id,
@@ -143,18 +143,11 @@ async def generate_videos(state: AgentState) -> AgentState:
                     error_message=str(exc)
                 )
 
-    # We fire them as background tasks and return immediately.
-    # The poller will handle completion tracking.
-    tasks = [_submit_single_job(prompt) for prompt in prompt_set.prompts]
-    
-    # We await gathering them here so that we don't return before they are submitted.
-    # Wait, the prompt says: "Decide explicitly ... whether this node waits for all initial 
-    # submissions to succeed before returning, or fires them as background asyncio.create_task() 
-    # calls and returns immediately — the second is preferred so the graph/API response isn't blocked".
-    
-    # Fire and forget
-    for t in tasks:
-        asyncio.create_task(t)
+    # Fire background submissions with strong references so GC cannot cancel them.
+    for job, prompt in jobs_and_prompts:
+        task = asyncio.create_task(_submit_single_job(job, prompt))
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
     return {
         **state,

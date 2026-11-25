@@ -27,7 +27,7 @@ async def review_prompts(state: AgentState) -> AgentState:
         logger.error("review_prompts: missing spec, scene_plan, or prompt_set in state.")
         return {
             **state,
-            "status": AgentStatus.COMPLETED,
+            "status": AgentStatus.REVIEWING,
         }
 
     # Run all deterministic QA checks
@@ -61,5 +61,5 @@ async def review_prompts(state: AgentState) -> AgentState:
         **state,
         "prompt_set": corrected_prompt_set,
         "review_report": final_report,          
-        "status": AgentStatus.COMPLETED,
+        "status": AgentStatus.REVIEWING,
     }
