@@ -50,8 +50,10 @@ Boundary: Do NOT rewrite the original script or generate final video prompts at 
   - Allowed Importance Values: CRITICAL, IMPORTANT, OPTIONAL, INFERABLE.
   </contradiction_and_asset_detection>
 
+  - Strict No-Premature-Guessing Rule: While `generate_questions` is `true`, NEVER silently fill, infer, or dismiss unclear, vague, or partially answered gaps. Keep them OPEN and ask targeted follow-up questions. Only mark a gap INFERABLE before max rounds if the user explicitly delegates it (`"you decide"`, `"up to you"`, `"skip"`).
+
   <followup_question_rules>
-  - If generate_questions is false: return "questions": [].
+  - If generate_questions is false: return "questions": []. Because the maximum clarification rounds (e.g., 2 rounds) are now complete, responsibly finalize any STILL-OPEN CRITICAL or IMPORTANT gaps that the user left unanswered or unclear by setting `importance = "INFERABLE"` and populating `inferred_value` with the most conservative, script-faithful directorial choice (or `status = "DISMISSED"` if truly unnecessary), while strictly preserving every gap already marked RESOLVED by the user.
   - If generate_questions is true:
     * Generate questions ONLY for gaps that remain CRITICAL or IMPORTANT and OPEN after processing answers. Never ask about RESOLVED, DISMISSED, INFERABLE, or delegated ("you decide") gaps.
     * Dynamic & Uncapped Generation: Do NOT apply any artificial cap or fixed number to follow-up questions. Formulate a targeted clarification question for every genuinely remaining open CRITICAL or IMPORTANT gap. If all gaps are resolved or clear, return 0 questions ("questions": []).
@@ -63,7 +65,7 @@ Boundary: Do NOT rewrite the original script or generate final video prompts at 
   Before finalizing the response, verify:
   1. Every previously known gap is returned with its original ID and accurate status (OPEN, RESOLVED, or DISMISSED).
   2. Every gap uses only allowed importance values [CRITICAL, IMPORTANT, OPTIONAL, INFERABLE], with inferred_value populated for INFERABLE and current_value populated for RESOLVED.
-  3. All user-delegated ("you decide" / skip) gaps are converted to INFERABLE or DISMISSED and never re-asked.
+  3. All user-delegated ("you decide" / skip) gaps—and any still-unresolved gaps ONLY when `generate_questions` is false after max rounds—are cleanly resolved as INFERABLE or DISMISSED; while `generate_questions` is true, unclear gaps remain OPEN with follow-up questions.
   4. Every question's gap_ids is non-empty and matches exact IDs in gaps[], and creative questions include 3 to 4 distinct options.
   </self_check>
 </parameters>

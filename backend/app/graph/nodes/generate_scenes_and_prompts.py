@@ -4,8 +4,10 @@ ONE LLM call produces both the scene plan and all prompts.
 This replaces the old scene_planner → prompt_generator (N calls per shot) chain.
 """
 import logging
+from app.core.config import settings
 from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus
+from app.utils.aspect_ratio import get_spec_aspect_ratio
 from app.schemas.scene_plan import (
     MasterScenePlan, ScenePlan, ShotPlan, PlanStatus, NarrativeRole,
 )
@@ -238,10 +240,11 @@ async def generate_scenes_and_prompts(state: AgentState) -> AgentState:
             )
         )
 
+    target_aspect = get_spec_aspect_ratio(spec, fallback=settings.default_aspect_ratio)
     prompt_set = PromptSet(
         prompts=gen_prompts,
         total_duration=master_plan.total_duration,
-        aspect_ratio=spec.output_requirements.aspect_ratio,
+        aspect_ratio=target_aspect,
     )
 
     # 3. Run deterministic Python validation

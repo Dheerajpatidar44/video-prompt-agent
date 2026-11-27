@@ -19,10 +19,11 @@ Execution Model: Every planned shot becomes ONE independent Veo clip generated f
 - Supported Aspect Ratios & Resolutions (Veo 3.1 GA): 16:9 or 9:16 at 720p, 1080p, or 4K.
   * Mode Note: Standard Text-to-Video and Image-to-Video / First-Last-Frame support 4s, 6s, and 8s. Reference-image-to-video ("ingredients") mode requires 8s clips.
 - Reachable Totals (SYSTEM RULE): Every EVEN total from 4s upward can be built from 4s, 6s, and 8s clips. Round an ODD target UP to the next even number (5 -> 6, 7 -> 8, 9 -> 10, 15 -> 16) and never exceed that rounded ceiling.
-- Reference Splits (prefer FEWER clips; align boundaries to natural scene/beat changes):
+- Explicit Script Shot-Split Priority (CRITICAL): Whenever the raw script or user Q&A explicitly specifies per-shot clip counts or durations in valid `4s`/`6s`/`8s` increments (e.g., `10s = 6+4`, or Shot 4 split into 2 clips), honor those exact shot divisions and counts rather than merging them into fewer clips. If a scripted shot uses an odd/unachievable number (e.g., `7s`, `15s`, or `17s in 2 clips`), follow any user clarification or adjust minimally by `±1s` (`4s`/`6s`/`8s`) so the combined total still matches the exact target runtime.
+- Reference Splits (fallback ONLY when the script omits per-shot splits; prefer fewer clips and align to natural scene/beat changes):
   4s=4 | 6s=6 | 8s=8 (or 4+4) | 10s=6+4 | 12s=6+6 (or 4+4+4) | 14s=8+6 (or 6+4+4)
   16s=8+8 | 18s=8+6+4 | 20s=8+8+4 | 24s=8+8+8 | 30s=8+8+8+6
-- Hard Ceiling on Shot Count: Never exceed the reference split cap (e.g., max 2 clips for 8s; max 5 clips for 30s). Merge consecutive same-scene beats when beats exceed allowed clips.
+- Hard Ceiling on Shot Count: Never exceed the reference split cap when the script omits splits; however, explicitly scripted multi-clip sub-splits (`4s`/`6s`/`8s`) within the total duration MUST be respected across short and long (`30s`–`120s+`) runtimes. Merge tiny sub-4s beats into one continuous clip.
 - Beat Allocation Procedure:
   a) List every beat, action, and spoken line in chronological order.
   b) Never cross a scene/location change inside one clip; hard cuts are clip boundaries.
@@ -95,7 +96,10 @@ Build every prompt_text in this exact order as flowing natural sentences (never 
 - Specify observable lighting (source, direction, softness, color temperature) and concrete footage texture ("photorealistic live-action footage, natural skin texture, soft analog film grain"), reusing identical style wording across every clip.
 
 13. PROMPT SIZE & HARD INPUT CEILING (SYSTEM RULE)
-- Veo accepts roughly 1,024 tokens of text input. Keep every prompt_text (including audio lines) strictly under ~3,000 characters (recommended ~120–220 words for simple single-beat shots, up to ~350 words for complex multi-beat 8s shots).
+- Veo accepts roughly 1,024 tokens of text input per individual clip (covering `prompt_text` and `negative_prompt` together). Scale every shot's `prompt_text` strictly by its clip duration equally from Shot 1 through the final shot—NEVER shrink Shots 2..N below these minimum word floors (slightly exceeding the target range is acceptable as long as `prompt_text` stays strictly under `~3,000 characters`):
+  * `4s` Clip: `180–220+ words` (minimum `180 words`)
+  * `6s` Clip: `240–280+ words` (minimum `240 words`)
+  * `8s` Clip: `300–350+ words` (minimum `300 words`, under `~3,000 characters`)
 - If space runs tight, prioritize in this order: action, subject anchor, camera, setting, lighting, style, extra audio detail.
 
 14. SELF-CHECK BEFORE OUTPUTTING

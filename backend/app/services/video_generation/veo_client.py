@@ -18,6 +18,7 @@ from app.services.video_generation.base_client import (
     TransientVideoError,
 )
 from app.services.video_generation.cost import billed_seconds, estimate_clip_cost_usd
+from app.utils.aspect_ratio import VEO_SUPPORTED_ASPECT_RATIOS, normalize_aspect_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -62,8 +63,11 @@ class VeoClient(VideoGenerationClient):
             self._client = create_genai_client(location=self.location)
 
     def _normalize_aspect_ratio(self, aspect: str) -> str:
-        raw = (aspect or "16:9").strip()
-        return {"16:9": "16:9", "9:16": "9:16", "1:1": "1:1"}.get(raw, "16:9")
+        return normalize_aspect_ratio(
+            aspect,
+            allowed=VEO_SUPPORTED_ASPECT_RATIOS,
+            default="16:9",
+        ) or "16:9"
 
     async def aclose(self) -> None:
         """Close client if needed."""

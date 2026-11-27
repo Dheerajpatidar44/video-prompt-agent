@@ -15,6 +15,7 @@ from typing import Any
 from app.core.config import settings
 from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus
+from app.utils.aspect_ratio import VEO_SUPPORTED_ASPECT_RATIOS, get_spec_aspect_ratio
 from app.schemas.video_job import VideoJob, VideoJobStatus
 from app.db import video_jobs_repository as repo
 from app.services.video_generation.client_factory import get_video_client
@@ -117,21 +118,29 @@ async def generate_videos(state: AgentState) -> AgentState:
                             ref_url = candidate
                             break
 
+                target_aspect = get_spec_aspect_ratio(
+                    spec,
+                    prompt_set,
+                    fallback=settings.default_aspect_ratio,
+                    allowed=VEO_SUPPORTED_ASPECT_RATIOS,
+                )
                 ext_job_id = await client.submit_job(
                     prompt_text=prompt.prompt_text,
                     duration_seconds=prompt.duration_seconds,
-                    aspect_ratio=spec.output_requirements.aspect_ratio or "16:9",
+                    aspect_ratio=target_aspect,
                     negative_prompt=prompt.negative_constraints,
                     reference_image_url=ref_url,
                     reference_image_urls=ref_urls if ref_urls else ([ref_url] if ref_url else None),
                     reference_assets=shot_items[:3] if shot_items else None,
                 )
 
-                # Update DB
+                # Update DB with actual provider submission timestamp so poller timeout
+                # tracks provider wait time rather than local semaphore queue wait.
                 repo.update_job_status(
                     job.job_id,
                     VideoJobStatus.SUBMITTED,
-                    external_job_id=ext_job_id
+                    external_job_id=ext_job_id,
+                    submitted_at=datetime.now(UTC),
                 )
                 logger.info(f"Submitted video job {job.job_id} -> {ext_job_id}")
 

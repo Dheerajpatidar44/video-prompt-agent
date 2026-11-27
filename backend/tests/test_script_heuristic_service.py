@@ -199,3 +199,24 @@ def test_creator_second_ranges_and_ui_popup_filter():
     assert len(report.dialogue_lines) == 2
 
 
+def test_detect_two_minute_and_3digit_durations():
+    cases = [
+        ("Create a 2-minute 16:9 brand film.", 120.0, "16:9"),
+        ("Target duration: 120s. Cinematic action.", 120.0, None),
+        ("A 120-second commercial in landscape 16:9.", 120.0, "16:9"),
+        ("Runtime: 2 minutes vertical video.", 120.0, "9:16"),
+        ("Make a 1 minute 30 seconds documentary intro.", 90.0, None),
+        ("0-120s: Full product journey.", 120.0, None),
+        ("0:00 - 0:08 Intro\n1:52 - 2:00 Outro", 120.0, None),
+    ]
+    for script, expected_dur, expected_aspect in cases:
+        dur, aspect = ScriptHeuristicService.detect_duration_and_aspect(script)
+        assert dur == expected_dur, f"Expected {expected_dur}, got {dur} for: {script}"
+        assert aspect == expected_aspect
+
+    report = ScriptHeuristicService.scan_script("Create a 2-minute 16:9 commercial.")
+    assert report.detected_duration_seconds == 120.0
+    assert sum(report.veo_recommended_shots) == 120
+    assert all(s in (4, 6, 8) for s in report.veo_recommended_shots)
+
+

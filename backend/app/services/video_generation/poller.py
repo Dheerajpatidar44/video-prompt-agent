@@ -15,6 +15,7 @@ from app.services.video_generation.client_factory import get_video_client
 from app.services.video_generation.base_client import PermanentVideoError, TransientVideoError
 from app.services.video_generation.storage import store_video, VideoStorageError
 from app.services.video_generation.stitcher import stitch_project_videos
+from app.utils.aspect_ratio import VEO_SUPPORTED_ASPECT_RATIOS, get_spec_aspect_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -166,7 +167,12 @@ async def _handle_failed_job(job, result: dict, client) -> None:
             ext_job_id = await client.submit_job(
                 prompt_text=prompt.prompt_text,
                 duration_seconds=prompt.duration_seconds,
-                aspect_ratio=spec.output_requirements.aspect_ratio or "16:9",
+                aspect_ratio=get_spec_aspect_ratio(
+                    spec,
+                    prompt_set,
+                    fallback=settings.default_aspect_ratio,
+                    allowed=VEO_SUPPORTED_ASPECT_RATIOS,
+                ),
                 negative_prompt=prompt.negative_constraints,
                 reference_assets=structured_assets if structured_assets else None,
             )
@@ -252,9 +258,17 @@ async def _regenerate_image_and_resubmit(job, error_msg: str, client, new_img_co
             f"(regen #{new_img_count}). Prompt: {effective_prompt[:80]}..."
         )
 
-        target_aspect = "16:9"
-        if spec and getattr(spec, "output_requirements", None):
-            target_aspect = getattr(spec.output_requirements, "aspect_ratio", None) or "16:9"
+        target_aspect = get_spec_aspect_ratio(
+            spec,
+            prompt_set,
+            fallback=settings.default_aspect_ratio,
+        )
+        video_aspect = get_spec_aspect_ratio(
+            spec,
+            prompt_set,
+            fallback=settings.default_aspect_ratio,
+            allowed=VEO_SUPPORTED_ASPECT_RATIOS,
+        )
 
         new_image_path = await image_service.generate_image(
             prompt=effective_prompt,
@@ -282,7 +296,7 @@ async def _regenerate_image_and_resubmit(job, error_msg: str, client, new_img_co
         ext_job_id = await client.submit_job(
             prompt_text=prompt.prompt_text,
             duration_seconds=prompt.duration_seconds,
-            aspect_ratio=target_aspect,
+            aspect_ratio=video_aspect,
             negative_prompt=prompt.negative_constraints,
             reference_assets=structured_assets,
         )

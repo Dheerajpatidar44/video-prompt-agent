@@ -62,7 +62,8 @@ class Settings(BaseSettings):
 
     # Gemini Image Generation Config
     gemini_image_model: str = Field("gemini-3.1-flash-image", validation_alias="GEMINI_IMAGE_MODEL")
-    gemini_image_concurrency_limit: int = Field(2, validation_alias="GEMINI_IMAGE_CONCURRENCY_LIMIT")
+    gemini_image_concurrency_limit: int = Field(1, validation_alias="GEMINI_IMAGE_CONCURRENCY_LIMIT")
+    gemini_image_min_interval_seconds: float = Field(2.0, validation_alias="GEMINI_IMAGE_MIN_INTERVAL_SECONDS")
     image_output_dir: str = Field("static/generated_images", validation_alias="IMAGE_OUTPUT_DIR")
     gemini_image_size: str = Field("1K", validation_alias="GEMINI_IMAGE_SIZE")
 

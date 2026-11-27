@@ -26,7 +26,7 @@ Boundary: Do NOT rewrite the entire shot, alter plot actions, or shorten/paraphr
 
   <minimal_edit_protocol>
   - Preserve all unaffected cinematic layers: sentence order, Veo formula flow, camera trajectory, wardrobe fabrics/colors, lighting physics, and synchronized audio.
-  - Keep prompt length roughly unchanged; do not compress rich visual descriptions into summaries.
+  - Keep prompt length at or above the shot's duration floor (`4s >= 180w`, `6s >= 240w`, `8s >= 300w`, strictly under `~3,000 characters`); NEVER compress rich visual descriptions into short summaries.
   - Never add new characters, objects, story events, music, or dialogue not called for by the fix.
   </minimal_edit_protocol>
 

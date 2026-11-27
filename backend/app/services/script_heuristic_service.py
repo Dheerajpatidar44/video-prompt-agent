@@ -8,6 +8,12 @@ import logging
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 
+from app.utils.aspect_ratio import (
+    RE_HORIZONTAL_KEYWORDS,
+    RE_VERTICAL_KEYWORDS,
+    detect_aspect_ratio_from_script,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,6 +36,7 @@ class ScriptPreCheckReport(BaseModel):
     detected_duration_seconds: Optional[float] = None
     veo_recommended_shots: List[int] = Field(default_factory=list)  # e.g. [6, 4] for 10s
     aspect_ratio_hint: Optional[str] = None
+    aspect_ratio_explicit: bool = False
     scene_count: int = 1
     detected_scenes: List[SceneStructure] = Field(default_factory=list)
     dialogue_lines: List[DialogueLine] = Field(default_factory=list)
@@ -52,27 +59,29 @@ class ScriptHeuristicService:
     RE_TIMESTAMP_RANGE = re.compile(
         r"(\d{1,2}\s*:\s*\d{2})\s*[\s\-\–\—\~\ufffdto]+\s*(\d{1,2}\s*:\s*\d{2})"
     )
-    # Second-based creator timestamp ranges: "0-2s:", "0–2s", "0 to 2s", "3–8s:", "[0-2 sec]"
+    # Second-based creator timestamp ranges: "0-2s:", "0–2s", "0 to 2s", "3–8s:", "[0-120 sec]"
     RE_SECOND_RANGE = re.compile(
-        r"(?:^|[\n\r;|\(\[])\s*(\d{1,2}(?:\.\d+)?)\s*(?:s|sec|seconds?)?\s*[\-–—~to]+\s*(\d{1,2}(?:\.\d+)?)\s*(?:s|sec|seconds?)\b\s*[:\-\)\]]?",
+        r"(?:^|[\n\r;|\(\[])\s*(\d{1,4}(?:\.\d+)?)\s*(?:s|sec|seconds?)?\s*[\-–—~to]+\s*(\d{1,4}(?:\.\d+)?)\s*(?:s|sec|seconds?)\b\s*[:\-\)\]]?",
         re.IGNORECASE | re.MULTILINE,
     )
     RE_DIALOGUE = re.compile(
         r'(?:^|[\n|.;])\s*([A-Za-z][A-Za-z0-9_\- ]{1,25}?)\s*(?:\([^)]*\))?\s*:\s*["\']?([^"\'\n\r|]{2,200})["\']?',
         re.MULTILINE,
     )
+    RE_MINUTE_SECOND_COMPOUND = re.compile(
+        r"\b(\d{1,2})\s*(?:minutes?|mins?)\s*(?:and\s*)?(\d{1,2})\s*(?:seconds?|secs?|s)\b",
+        re.IGNORECASE,
+    )
+    RE_MINUTE_DURATION = re.compile(
+        r"\b(?:(\d{1,2}(?:\.\d+)?)\s*(?:minutes?|mins?)\b|(\d{1,2})\s*(?:-minute|-min)\b)",
+        re.IGNORECASE,
+    )
     RE_DURATION = re.compile(
-        r"\b(?:(\d{1,2}(?:\.\d+)?)\s*(?:seconds?|secs?|s)\b|(\d{1,2})\s*(?:-second|-sec)\b)",
+        r"\b(?:(\d{1,4}(?:\.\d+)?)\s*(?:seconds?|secs?|s)\b|(\d{1,4})\s*(?:-second|-sec)\b)",
         re.IGNORECASE,
     )
-    RE_VERTICAL = re.compile(
-        r"\b(?:9:16|vertical|reels?|tiktok|shorts?|portrait|story|stories)\b",
-        re.IGNORECASE,
-    )
-    RE_HORIZONTAL = re.compile(
-        r"\b(?:16:9|horizontal|widescreen|landscape|youtube|cinemascope)\b",
-        re.IGNORECASE,
-    )
+    RE_VERTICAL = RE_VERTICAL_KEYWORDS
+    RE_HORIZONTAL = RE_HORIZONTAL_KEYWORDS
 
     @staticmethod
     def _parse_timestamp_seconds(ts_str: str) -> int:
@@ -295,15 +304,17 @@ class ScriptHeuristicService:
     def detect_duration_and_aspect(script_text: str) -> tuple[Optional[float], Optional[str]]:
         duration: Optional[float] = None
 
-        # Check explicit "duration: X" or "final video duration: X"
+        # Check explicit "duration: 120s" or "duration: 2 minutes" or "final video length: 90"
         explicit_m = re.search(
-            r"(?:final\s+)?(?:video\s+)?(?:duration|length|runtime)\s*[:=-]?\s*(\d{1,2}(?:\.\d+)?)\s*(?:seconds?|secs?|s)?\b",
+            r"(?:final\s+)?(?:video\s+)?(?:duration|length|runtime)\s*[:=-]?\s*(\d{1,4}(?:\.\d+)?)\s*(minutes?|mins?|min|m|seconds?|secs?|s)?\b",
             script_text,
             re.IGNORECASE,
         )
         if explicit_m:
             try:
-                duration = float(explicit_m.group(1))
+                val = float(explicit_m.group(1))
+                unit = (explicit_m.group(2) or "").lower()
+                duration = val * 60.0 if unit.startswith("m") else val
             except ValueError:
                 pass
 
@@ -328,7 +339,24 @@ class ScriptHeuristicService:
             if max_ts > 0:
                 duration = max_ts
 
-        # Fallback to standalone duration mentions (e.g. "A 10s horizontal video") ONLY if no ranges were found
+        # Fallback to standalone duration mentions ("1 minute 30 seconds", "2 minutes", "120s")
+        if duration is None:
+            compound_m = ScriptHeuristicService.RE_MINUTE_SECOND_COMPOUND.search(script_text)
+            if compound_m:
+                try:
+                    duration = float(compound_m.group(1)) * 60.0 + float(compound_m.group(2))
+                except ValueError:
+                    pass
+
+        if duration is None:
+            min_match = ScriptHeuristicService.RE_MINUTE_DURATION.search(script_text)
+            if min_match:
+                val_str = min_match.group(1) or min_match.group(2)
+                try:
+                    duration = float(val_str) * 60.0
+                except ValueError:
+                    pass
+
         if duration is None:
             dur_match = ScriptHeuristicService.RE_DURATION.search(script_text)
             if dur_match:
@@ -338,11 +366,7 @@ class ScriptHeuristicService:
                 except ValueError:
                     pass
 
-        aspect: Optional[str] = None
-        if ScriptHeuristicService.RE_VERTICAL.search(script_text):
-            aspect = "9:16"
-        elif ScriptHeuristicService.RE_HORIZONTAL.search(script_text):
-            aspect = "16:9"
+        aspect, _ = detect_aspect_ratio_from_script(script_text)
 
         return duration, aspect
 
@@ -351,7 +375,8 @@ class ScriptHeuristicService:
         cls, script_text: str, explicit_target_duration: Optional[float] = None
     ) -> ScriptPreCheckReport:
         """Executes the full deterministic pre-check pipeline on the script."""
-        detected_dur, aspect = cls.detect_duration_and_aspect(script_text)
+        detected_dur, _ = cls.detect_duration_and_aspect(script_text)
+        aspect, aspect_explicit = detect_aspect_ratio_from_script(script_text)
         effective_duration = explicit_target_duration or detected_dur
 
         veo_slots = cls.calculate_veo_shot_slots(effective_duration) if effective_duration else [6, 4]
@@ -362,19 +387,26 @@ class ScriptHeuristicService:
 
         # Build clean formatted bullet points
         dur_text = f"{effective_duration}s" if effective_duration else "Not explicitly specified (Defaulting to 10s)"
-        slots_text = f" -> Google Veo Clip Slotting: {' + '.join(f'{s}s' for s in veo_slots)}"
-        aspect_text = f"Aspect Ratio Detected: {aspect}" if aspect else "Aspect Ratio: None detected (Default 16:9)"
+        slots_text = (
+            f" -> Google Veo Clip Slotting: {' + '.join(f'{s}s' for s in veo_slots)}"
+            " (Fallback suggestion only if raw script does not specify per-shot splits)"
+        )
+        if aspect:
+            suffix = " (Explicit)" if aspect_explicit else " (Advisory keyword hint)"
+            aspect_text = f"Aspect Ratio Detected: {aspect}{suffix}"
+        else:
+            aspect_text = "Aspect Ratio: None detected (Default 16:9)"
 
         lines_summary = []
         lines_summary.append(f"- Duration: {dur_text}{slots_text}")
         lines_summary.append(f"- {aspect_text}")
         lines_summary.append(f"- Candidate Scene Boundary Hints (Advisory - verify against raw script):")
-        for sc in scenes[:8]:
+        for sc in scenes[:25]:
             lines_summary.append(f"  * Scene {sc.scene_number}: {sc.header} [{sc.setting_type}/{sc.lighting_time}]")
 
         if dialogue:
             lines_summary.append(f"- Dialogue & Voiceover Hints: {len(dialogue)} line(s), {total_words} words (Estimated speech: ~{est_time}s)")
-            for d in dialogue[:5]:
+            for d in dialogue[:20]:
                 lines_summary.append(f"  * {d.speaker}: \"{d.text}\" ({d.word_count} words)")
             if not feasible:
                 lines_summary.append(f"  ⚠️ TIMING ADVISORY: Spoken dialogue (~{est_time}s) may exceed target duration ({effective_duration}s).")
@@ -385,6 +417,7 @@ class ScriptHeuristicService:
             detected_duration_seconds=effective_duration,
             veo_recommended_shots=veo_slots,
             aspect_ratio_hint=aspect,
+            aspect_ratio_explicit=aspect_explicit,
             scene_count=len(scenes),
             detected_scenes=scenes,
             dialogue_lines=dialogue,

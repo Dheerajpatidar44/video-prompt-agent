@@ -13,11 +13,12 @@ Generates ONE cohesive Master Keyframe image per shot driven entirely by the scr
 """
 import asyncio
 import logging
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 
 from app.core.config import settings
 from app.graph.state import AgentState
 from app.schemas.agent import AgentStatus
+from app.utils.aspect_ratio import SUPPORTED_ASPECT_RATIOS, get_spec_aspect_ratio
 from app.services.image_generation.gemini_image_service import (
     get_gemini_image_service,
     ImageGenerationError,
@@ -101,10 +102,13 @@ async def generate_images(state: AgentState) -> AgentState:
         logger.warning(f"generate_images: Image service unavailable ({exc}). Skipping image generation.")
         return {**state, "status": next_status}
 
-    # Derive aspect ratio dynamically from VideoSpecification — never hardcoded
-    target_aspect = "16:9"
-    if spec and getattr(spec, "output_requirements", None):
-        target_aspect = getattr(spec.output_requirements, "aspect_ratio", None) or "16:9"
+    # Derive normalized aspect ratio dynamically from VideoSpecification / PromptSet — never hardcoded
+    target_aspect = get_spec_aspect_ratio(
+        spec,
+        prompt_set,
+        fallback=settings.default_aspect_ratio,
+        allowed=SUPPORTED_ASPECT_RATIOS,
+    )
 
     # Collect user-uploaded reference image paths by category
     user_refs = state.get("reference_images") or {}
@@ -121,22 +125,16 @@ async def generate_images(state: AgentState) -> AgentState:
     # Visual continuity anchor: captures the first generated keyframe when no user refs exist
     master_asset_catalog: Dict[str, str] = dict(state.get("master_asset_catalog") or {})
     shot_manifest: Dict[str, List[Dict[str, Any]]] = {}
+    total_shots = len(prompt_set.prompts)
 
-    # Generate ONE Master Keyframe per shot
-    for idx, prompt_item in enumerate(prompt_set.prompts, start=1):
+    async def _generate_shot_keyframe(idx: int, prompt_item) -> tuple[str, Optional[str]]:
         shot_id = prompt_item.shot_id
-
-        # Priority 1: use the LLM-written static opening-frame prompt (T=0s)
-        # Priority 2: fall back to video prompt_text if keyframe_image_prompt is absent
         raw_kf_prompt = getattr(prompt_item, "keyframe_image_prompt", None)
         effective_prompt = (
             raw_kf_prompt if (raw_kf_prompt and raw_kf_prompt.strip())
             else prompt_item.prompt_text
         )
 
-        # Reference images to pass for multimodal conditioning:
-        # A. User-uploaded references take priority (preserves faces / product appearance)
-        # B. If no uploads, use the first generated keyframe as a cross-shot visual anchor
         ref_images_to_use: List[str] = []
         if explicit_user_refs:
             ref_images_to_use = explicit_user_refs
@@ -145,7 +143,7 @@ async def generate_images(state: AgentState) -> AgentState:
 
         filename = f"{project_id}_{shot_id}_keyframe.png"
         logger.info(
-            f"generate_images: Shot {idx}/{len(prompt_set.prompts)} ('{shot_id}') → "
+            f"generate_images: Shot {idx}/{total_shots} ('{shot_id}') → "
             f"aspect={target_aspect}, refs={len(ref_images_to_use)}, "
             f"using={'keyframe_image_prompt' if raw_kf_prompt else 'prompt_text (fallback)'}"
         )
@@ -156,29 +154,41 @@ async def generate_images(state: AgentState) -> AgentState:
             ref_images=ref_images_to_use if ref_images_to_use else None,
             custom_filename=filename,
         )
+        return shot_id, saved_path
 
-        # Rate-limit courtesy pause between sequential API calls
-        await asyncio.sleep(0.5)
-
-        resolved_path = saved_path or f"static/generated_images/{filename}"
-
-        # Lock the first successful keyframe as the visual anchor for subsequent shots
-        # (only when no user references were uploaded)
-        if saved_path and not explicit_user_refs and "primary_anchor" not in master_asset_catalog:
-            master_asset_catalog["primary_anchor"] = saved_path
-            logger.info(
-                f"generate_images: Shot '{shot_id}' locked as primary visual anchor "
-                "for cross-shot continuity."
-            )
-
-        # Store exactly ONE MASTER_KEYFRAME entry for this shot
+    def _record_shot(shot_id: str, saved_path: Optional[str]) -> None:
+        if not saved_path:
+            logger.warning(f"generate_images: Shot '{shot_id}' returned no image; omitting broken manifest entry.")
+            return
         shot_manifest[shot_id] = [{
             "asset_id": f"{shot_id}_keyframe",
             "role": "MASTER_KEYFRAME",
-            "path": resolved_path,
-            "url": _normalize_asset_url(resolved_path),
+            "path": saved_path,
+            "url": _normalize_asset_url(saved_path),
             "reused": False,
         }]
+
+    # Step 1: Generate Shot 1 first to establish primary_anchor when no user refs exist
+    first_prompt = prompt_set.prompts[0]
+    first_shot_id, first_path = await _generate_shot_keyframe(1, first_prompt)
+    if first_path and not explicit_user_refs and "primary_anchor" not in master_asset_catalog:
+        master_asset_catalog["primary_anchor"] = first_path
+        logger.info(
+            f"generate_images: Shot '{first_shot_id}' locked as primary visual anchor "
+            "for cross-shot continuity."
+        )
+    _record_shot(first_shot_id, first_path)
+
+    # Step 2: Generate remaining shots concurrently (bounded by image_service._semaphore)
+    if total_shots > 1:
+        rest_results = await asyncio.gather(
+            *[
+                _generate_shot_keyframe(idx, prompt_item)
+                for idx, prompt_item in enumerate(prompt_set.prompts[1:], start=2)
+            ]
+        )
+        for shot_id, saved_path in rest_results:
+            _record_shot(shot_id, saved_path)
 
     total_resolved = sum(len(items) for items in shot_manifest.values())
     logger.info(

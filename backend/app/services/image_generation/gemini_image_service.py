@@ -7,6 +7,8 @@ Supports:
 import asyncio
 import logging
 import os
+import random
+import re
 import uuid
 from io import BytesIO
 from pathlib import Path
@@ -18,6 +20,7 @@ from google.genai import types
 
 from app.core.config import settings
 from app.core.google_client import create_genai_client
+from app.utils.aspect_ratio import SUPPORTED_ASPECT_RATIOS, normalize_aspect_ratio
 
 logger = logging.getLogger(__name__)
 
@@ -55,12 +58,56 @@ class GeminiImageService:
         image_location = os.environ.get("GEMINI_IMAGE_LOCATION") or "global"
         self._client = create_genai_client(location=image_location)
 
-        self._semaphore = asyncio.Semaphore(settings.gemini_image_concurrency_limit)
+        concurrency = max(1, int(getattr(settings, "gemini_image_concurrency_limit", 1) or 1))
+        self._semaphore = asyncio.Semaphore(concurrency)
+        self._rate_lock = asyncio.Lock()
+        self._min_request_interval = max(
+            0.0, float(getattr(settings, "gemini_image_min_interval_seconds", 2.0) or 0.0)
+        )
+        self._last_request_ts: float = 0.0
+        self._cooldown_until: float = 0.0
 
     def _normalize_aspect_ratio(self, aspect: Optional[str]) -> str:
-        raw = (aspect or "16:9").strip()
-        allowed = {"16:9", "9:16", "1:1", "4:3", "3:4"}
-        return raw if raw in allowed else "16:9"
+        return normalize_aspect_ratio(
+            aspect,
+            allowed=SUPPORTED_ASPECT_RATIOS,
+            default="16:9",
+        ) or "16:9"
+
+    async def _wait_for_rate_limit(self) -> None:
+        """Space consecutive image requests cleanly and honor shared 429 cooldowns."""
+        async with self._rate_lock:
+            loop = asyncio.get_running_loop()
+            now = loop.time()
+            next_allowed = max(
+                self._cooldown_until,
+                self._last_request_ts + self._min_request_interval if self._last_request_ts > 0 else 0.0,
+            )
+            if next_allowed > now:
+                await asyncio.sleep(next_allowed - now)
+            self._last_request_ts = loop.time()
+
+    @staticmethod
+    def _classify_retry_backoff(exc: Exception, attempt: int) -> tuple[bool, bool, float]:
+        """Return (should_retry, is_quota, backoff_seconds) for an image API error."""
+        err_str = str(exc)
+        lower = err_str.lower()
+
+        if any(term in lower for term in ("400", "401", "403", "404", "invalid_argument", "permission_denied", "unauthenticated")):
+            return False, False, 0.0
+
+        is_quota = any(
+            term in lower
+            for term in ("429", "resource_exhausted", "too many requests", "rate limit", "quota")
+        )
+        if is_quota:
+            retry_match = re.search(r"retry\s+(?:in|after)\s+(\d+(?:\.\d+)?)\s*s", lower)
+            server_hint = float(retry_match.group(1)) if retry_match else 0.0
+            base = min(45.0, 8.0 * (2 ** attempt)) + random.uniform(0.5, 2.0)
+            return True, True, max(server_hint, base)
+
+        delay = min(20.0, 2.5 * (attempt + 1)) + random.uniform(0.2, 0.8)
+        return True, False, delay
 
     def _load_pil_image(self, ref_input: Union[bytes, str, Path, Image.Image]) -> Optional[Image.Image]:
         """Loads and returns a PIL Image safely from bytes, file path, or existing Image."""
@@ -119,6 +166,9 @@ class GeminiImageService:
 
         for candidate in response.candidates:
             if not candidate.content or not candidate.content.parts:
+                finish_reason = getattr(candidate, "finish_reason", None)
+                if finish_reason:
+                    logger.warning(f"Gemini Image candidate had no parts (finish_reason={finish_reason}).")
                 continue
             for part in candidate.content.parts:
                 if getattr(part, "inline_data", None) and getattr(part.inline_data, "data", None):
@@ -135,7 +185,7 @@ class GeminiImageService:
         ref_image: Optional[Union[bytes, str, Path, Image.Image]] = None,
         ref_images: Optional[list[Union[bytes, str, Path, Image.Image]]] = None,
         custom_filename: Optional[str] = None,
-        max_retries: int = 3,
+        max_retries: int = 5,
     ) -> Optional[str]:
         """Generates an image via Gemini 3.1 Flash Image.
 
@@ -188,6 +238,7 @@ class GeminiImageService:
 
             for attempt in range(max_retries + 1):
                 try:
+                    await self._wait_for_rate_limit()
                     image_bytes = await asyncio.to_thread(
                         self._call_gemini_sync,
                         contents=contents,
@@ -196,7 +247,7 @@ class GeminiImageService:
 
                     if not image_bytes:
                         if attempt < max_retries:
-                            await asyncio.sleep(1.0)
+                            await asyncio.sleep(1.5)
                             continue
                         logger.warning(f"No image bytes returned for prompt: {prompt[:60]}...")
                         return None
@@ -215,12 +266,13 @@ class GeminiImageService:
                     return result_path
 
                 except Exception as exc:
-                    if attempt < max_retries:
-                        err_str = str(exc).lower()
-                        is_quota = "429" in err_str or "resource_exhausted" in err_str
-                        backoff = (4.0 * (attempt + 1)) if is_quota else 1.5
+                    should_retry, is_quota, backoff = self._classify_retry_backoff(exc, attempt)
+                    if should_retry and attempt < max_retries:
+                        if is_quota:
+                            loop = asyncio.get_running_loop()
+                            self._cooldown_until = max(self._cooldown_until, loop.time() + backoff)
                         logger.warning(
-                            f"Gemini image generation attempt {attempt + 1} failed ({exc}). "
+                            f"Gemini image generation attempt {attempt + 1}/{max_retries + 1} failed ({exc}). "
                             f"Retrying in {backoff:.1f}s..."
                         )
                         await asyncio.sleep(backoff)

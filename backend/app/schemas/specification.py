@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List, Dict, Any
 from enum import Enum
 
+from app.utils.aspect_ratio import normalize_aspect_ratio
+
 class SpecSource(str, Enum):
     SCRIPT = "SCRIPT"
     USER = "USER"
@@ -154,6 +156,13 @@ class OutputRequirements(BaseModel):
                 return int(m.group(1))
         return None
     duration_seconds: Optional[int] = None
+    @field_validator("aspect_ratio", mode="before")
+    @classmethod
+    def sanitize_aspect_ratio(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        return normalize_aspect_ratio(str(v))
+
     aspect_ratio: Optional[str] = None
     orientation: Optional[str] = None
     resolution: Optional[str] = None

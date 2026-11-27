@@ -264,3 +264,25 @@ async def test_generate_scenes_and_prompts_enforces_8s_ceiling():
     assert len(prompt_set.prompts) == 2
     assert [p.shot_id for p in prompt_set.prompts] == ["sh_1", "sh_2"]
     assert sum(p.duration_seconds for p in prompt_set.prompts) == 8
+
+
+def test_prompt_instructions_duration_word_floors_and_benchmark():
+    """Verify generation and Veo rules enforce stepped 4s/6s/8s word floors and a ~300+w benchmark."""
+    import re
+    from app.prompts.generation import GENERATION_SYSTEM_INSTRUCTION
+    from app.prompts.tool_rules import get_tool_rules
+
+    veo_rules = get_tool_rules("Veo")
+    for text in (GENERATION_SYSTEM_INSTRUCTION, veo_rules):
+        assert "180–220" in text or "180 words" in text
+        assert "240–280" in text or "240 words" in text
+        assert "300–350" in text or "300 words" in text
+
+    assert "~80–120 words" in GENERATION_SYSTEM_INSTRUCTION
+
+    m_prompt = re.search(r'- prompt_text: "([^"]+)"', GENERATION_SYSTEM_INSTRUCTION)
+    m_kf = re.search(r'- keyframe_image_prompt: "([^"]+)"', GENERATION_SYSTEM_INSTRUCTION)
+    assert m_prompt and m_kf
+    assert len(m_prompt.group(1).split()) >= 300
+    assert len(m_prompt.group(1)) < 3000
+    assert 80 <= len(m_kf.group(1).split()) <= 120

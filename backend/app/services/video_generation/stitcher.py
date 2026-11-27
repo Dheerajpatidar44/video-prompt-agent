@@ -31,7 +31,7 @@ from app.schemas.video_job import VideoJobStatus
 logger = logging.getLogger(__name__)
 
 # Upper bound for a single ffmpeg run, so a hung process cannot block the poller.
-FFMPEG_TIMEOUT_SECONDS = 300
+FFMPEG_TIMEOUT_SECONDS = 600
 
 
 class StitchingError(Exception):
