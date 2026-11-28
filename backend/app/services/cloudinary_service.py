@@ -2,11 +2,16 @@ import io
 import logging
 import os
 import time
+from pathlib import Path
 import cloudinary
 import cloudinary.uploader
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+_BACKEND_STATIC_VIDEOS_DIR = (
+    Path(__file__).resolve().parent.parent.parent / "static" / "generated_videos"
+)
 
 # Cloudinary single-request upload limit is typically ~100MB; use chunked upload
 # above 20MB so 2-minute 1080p MP4 files upload reliably without timeouts.
@@ -45,13 +50,19 @@ def upload_image(file_bytes: bytes, filename: str, folder: str = "video-agent") 
 
 
 def _save_local_video_fallback(file_bytes: bytes, public_id: str) -> str:
-    """Persist video locally under static/generated_videos/ if Cloudinary fails in production."""
-    os.makedirs(os.path.join("static", "generated_videos"), exist_ok=True)
-    safe_name = f"{public_id}.mp4"
-    local_path = os.path.join("static", "generated_videos", safe_name)
+    """Persist video locally under backend/static/generated_videos/ if Cloudinary fails."""
+    target_dir = (
+        Path("static") / "generated_videos"
+        if os.environ.get("TESTING") == "1"
+        else _BACKEND_STATIC_VIDEOS_DIR
+    )
+    target_dir.mkdir(parents=True, exist_ok=True)
+    safe_name = f"{os.path.basename(public_id)}.mp4"
+    local_path = target_dir / safe_name
     with open(local_path, "wb") as f:
         f.write(file_bytes)
-    url = f"http://{settings.app_host}:{settings.app_port}/static/generated_videos/{safe_name}"
+    public_host = "127.0.0.1" if settings.app_host in ("0.0.0.0", "::", "") else settings.app_host
+    url = f"http://{public_host}:{settings.app_port}/static/generated_videos/{safe_name}"
     logger.warning(f"Saved video locally as fallback after Cloudinary error: {url}")
     return url
 

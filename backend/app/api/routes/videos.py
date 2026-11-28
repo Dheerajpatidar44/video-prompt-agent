@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
+import asyncio
 import logging
 
 from app.db import video_jobs_repository as repo
@@ -13,6 +14,7 @@ router = APIRouter()
 
 # In-process fallback guard for projects without a DB row (e.g. direct tests)
 _starting_projects: set[str] = set()
+_stitch_retry_tasks: set[asyncio.Task] = set()
 
 
 class TriggerVideoResponse(BaseModel):
@@ -72,17 +74,30 @@ async def get_video_status(project_id: str):
     completed_shots = sum(1 for j in jobs if j.status == VideoJobStatus.COMPLETED)
     failed_shots = sum(1 for j in jobs if j.status == VideoJobStatus.FAILED)
 
+    row = _get_project_row(project_id)
     final_video_url = repo.get_project_final_video_url(project_id)
+    first_job_error = next(
+        (j.error_message for j in jobs if j.status == VideoJobStatus.FAILED and j.error_message),
+        None,
+    )
+    error_message: str | None = first_job_error
 
     status = "IN_PROGRESS"
     if completed_shots + failed_shots == total_shots:
         if final_video_url:
             if failed_shots == 0:
                 status = "COMPLETED"
+                error_message = None
             else:
                 status = "PARTIAL_FAILURE"
         elif completed_shots == 0:
-            status = "PARTIAL_FAILURE"
+            status = "FAILED"
+            error_message = error_message or "All video generation shots failed."
+        elif row and row["status"] == "FAILED":
+            status = "FAILED"
+            error_message = error_message or (
+                "Video stitching failed. Completed shots are preserved — click Retry to re-stitch."
+            )
         else:
             status = "IN_PROGRESS"
 
@@ -93,13 +108,14 @@ async def get_video_status(project_id: str):
         failed_shots=failed_shots,
         status=status,
         final_video_url=final_video_url,
+        error_message=error_message,
         jobs=jobs,
     )
 
 
 @router.post("/{project_id}/generate-video", response_model=TriggerVideoResponse)
 async def trigger_video_generation(project_id: str):
-    """Explicitly trigger Phase 2 video generation from saved Phase 1 state."""
+    """Explicitly trigger Phase 2 video generation (or retry failed shots/stitch) from saved Phase 1 state."""
     if project_id in _starting_projects:
         return TriggerVideoResponse(
             project_id=project_id,
@@ -113,7 +129,27 @@ async def trigger_video_generation(project_id: str):
     previous_status = AgentStatus.PROMPTS_READY.value
 
     try:
-        if repo.get_project_final_video_url(project_id):
+        existing_final_url = repo.get_project_final_video_url(project_id)
+        existing_jobs = repo.get_jobs_for_project(project_id)
+
+        active_statuses = {
+            VideoJobStatus.QUEUED,
+            VideoJobStatus.SUBMITTED,
+            VideoJobStatus.PROCESSING,
+            VideoJobStatus.RETRYING,
+        }
+        if any(j.status in active_statuses for j in existing_jobs):
+            return TriggerVideoResponse(
+                project_id=project_id,
+                status=AgentStatus.GENERATING_VIDEOS.value,
+                message="Video generation has already been started for this project.",
+                already_started=True,
+            )
+
+        failed_jobs = [j for j in existing_jobs if j.status == VideoJobStatus.FAILED]
+        completed_jobs = [j for j in existing_jobs if j.status == VideoJobStatus.COMPLETED]
+
+        if existing_final_url and not failed_jobs:
             return TriggerVideoResponse(
                 project_id=project_id,
                 status=AgentStatus.COMPLETED.value,
@@ -121,11 +157,35 @@ async def trigger_video_generation(project_id: str):
                 already_started=True,
             )
 
-        existing_jobs = repo.get_jobs_for_project(project_id)
-        all_failed_retry = bool(existing_jobs) and all(
-            j.status == VideoJobStatus.FAILED for j in existing_jobs
-        )
-        if existing_jobs and not all_failed_retry:
+        existing_row = _get_project_row(project_id)
+        if existing_row and existing_row["status"]:
+            previous_status = existing_row["status"]
+
+        # Case 1: All shots completed, only stitching had failed -> re-stitch without re-billing Veo
+        if existing_jobs and completed_jobs and not failed_jobs and not existing_final_url:
+            claim_res = repo.try_claim_video_generation(project_id, allow_completed=True)
+            if claim_res not in ("CLAIMED", None):
+                return TriggerVideoResponse(
+                    project_id=project_id,
+                    status=claim_res,
+                    message="Video generation has already been started for this project.",
+                    already_started=True,
+                )
+
+            from app.services.video_generation.poller import _check_and_trigger_stitching
+            task = asyncio.create_task(_check_and_trigger_stitching(project_id))
+            _stitch_retry_tasks.add(task)
+            task.add_done_callback(_stitch_retry_tasks.discard)
+
+            return TriggerVideoResponse(
+                project_id=project_id,
+                status=AgentStatus.GENERATING_VIDEOS.value,
+                message="Retrying final video stitching.",
+                already_started=False,
+            )
+
+        has_failed_retry = bool(existing_jobs) and bool(failed_jobs)
+        if existing_jobs and not has_failed_retry:
             return TriggerVideoResponse(
                 project_id=project_id,
                 status=AgentStatus.GENERATING_VIDEOS.value,
@@ -145,12 +205,11 @@ async def trigger_video_generation(project_id: str):
                 detail="Prompts or video specification are not ready yet for this project.",
             )
 
-        existing_row = _get_project_row(project_id)
-        if existing_row and existing_row["status"]:
-            previous_status = existing_row["status"]
-
         # Atomic DB CAS lock prevents concurrent double-clicks even across workers
-        claim_res = repo.try_claim_video_generation(project_id)
+        claim_res = repo.try_claim_video_generation(
+            project_id,
+            allow_completed=has_failed_retry,
+        )
         if claim_res == "CLAIMED":
             claimed_db_lock = True
         elif claim_res is not None:
@@ -161,13 +220,12 @@ async def trigger_video_generation(project_id: str):
                 already_started=True,
             )
 
-        if all_failed_retry:
-            deleted = repo.delete_failed_jobs_for_project(project_id)
-            logger.info(
-                f"Retrying video generation for project {project_id}: cleared {deleted} prior failed jobs."
-            )
+        target_shot_ids: set[str] | None = None
+        old_failed_ids = [j.job_id for j in failed_jobs] if has_failed_retry else []
+        if has_failed_retry and completed_jobs:
+            target_shot_ids = {j.shot_id for j in failed_jobs}
 
-        updated_state = await generate_videos(state)
+        updated_state = await generate_videos(state, target_shot_ids=target_shot_ids)
 
         if updated_state.get("video_generation_status") == "BLOCKED_COST_GUARD":
             if claimed_db_lock:
@@ -185,6 +243,15 @@ async def trigger_video_generation(project_id: str):
             raise HTTPException(
                 status_code=500,
                 detail=updated_state.get("error") or "Failed to initiate video generation.",
+            )
+
+        if has_failed_retry:
+            if existing_final_url:
+                repo.clear_project_final_video_url(project_id)
+            deleted = repo.delete_jobs_by_ids(old_failed_ids)
+            logger.info(
+                f"Retrying video generation for project {project_id}: cleared {deleted} prior failed jobs "
+                f"(partial={bool(completed_jobs)})."
             )
 
         # Best-effort sync of LangGraph checkpointer; DB jobs are already created and active

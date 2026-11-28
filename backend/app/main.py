@@ -17,6 +17,18 @@ async def lifespan(app: FastAPI):
     """Lifecycle events for FastAPI."""
     from app.db.database import init_db
     init_db()
+
+    try:
+        from app.db.video_jobs_repository import fail_orphaned_queued_jobs
+        recovered = fail_orphaned_queued_jobs()
+        if recovered:
+            import logging
+            logging.getLogger(__name__).warning(
+                f"Startup recovery marked {recovered} orphaned QUEUED/RETRYING job(s) as FAILED."
+            )
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(f"Startup orphaned job recovery skipped: {exc}")
     
     from app.services.video_generation.poller import run_poller_loop
     poller_task = asyncio.create_task(run_poller_loop())

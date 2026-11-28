@@ -190,8 +190,26 @@ export default function ProjectDetailsPage() {
               <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-[#ff3366]"></div>
               <p className="text-gray-400 font-medium">Loading project details...</p>
             </div>
-          ) : (videoStatus?.status === 'COMPLETED' || videoStatus?.status === 'PARTIAL_FAILURE') && (videoStatus?.final_video_url || videoStatus?.jobs?.find((j: any) => j.status === 'COMPLETED')?.video_url) ? (
+          ) : (videoStatus?.status === 'COMPLETED' || videoStatus?.status === 'PARTIAL_FAILURE') && !!videoStatus?.final_video_url ? (
             <div className="flex-1 flex flex-col h-full overflow-hidden">
+              {videoStatus?.status === 'PARTIAL_FAILURE' && (
+                <div className="px-6 py-2.5 bg-amber-500/10 border-b border-amber-500/20 flex flex-wrap items-center justify-between gap-3 text-xs shrink-0">
+                  <div className="flex items-center gap-2 text-amber-200">
+                    <AlertCircle size={15} className="text-amber-400 shrink-0" />
+                    <span>
+                      Partial video stitched ({videoStatus.completed_shots}/{videoStatus.total_shots} shots completed).
+                      {videoStatus.error_message ? ` Last error: ${videoStatus.error_message}` : ""}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleGenerateVideo}
+                    disabled={startingVideo}
+                    className="px-3.5 py-1.5 bg-gradient-to-br from-blue-500 to-violet-500 hover:opacity-90 rounded-lg text-white font-semibold text-xs transition cursor-pointer disabled:opacity-60"
+                  >
+                    {startingVideo ? "Retrying..." : "Retry Failed Shots"}
+                  </button>
+                </div>
+              )}
               {/* Tab Navigation */}
               <div className="flex items-center justify-between px-6 py-2.5 border-b border-gray-800 bg-[#0a0a0d] shrink-0 z-10">
                 <div className="flex items-center gap-2">
@@ -233,7 +251,7 @@ export default function ProjectDetailsPage() {
                   showFullVideo ? (
                     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex-1 flex flex-col h-full">
                       <FinalVideoView
-                        videoUrl={videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url}
+                        videoUrl={videoStatus.final_video_url}
                         prompts={prompts?.prompts || []}
                         totalDuration={prompts?.total_duration || 12}
                         projectImages={projectImages}
@@ -264,7 +282,7 @@ export default function ProjectDetailsPage() {
                           }}
                         >
                           <video
-                            src={videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url}
+                            src={videoStatus.final_video_url}
                             className="w-full h-full object-cover"
                             muted
                             playsInline
@@ -292,7 +310,7 @@ export default function ProjectDetailsPage() {
                               onClick={async (e) => {
                                 e.stopPropagation();
                                 try {
-                                  const urlToFetch = videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url;
+                                  const urlToFetch = videoStatus.final_video_url;
                                   const response = await fetch(urlToFetch);
                                   const blob = await response.blob();
                                   const url = window.URL.createObjectURL(blob);
@@ -304,7 +322,7 @@ export default function ProjectDetailsPage() {
                                   document.body.removeChild(link);
                                   window.URL.revokeObjectURL(url);
                                 } catch (err) {
-                                  window.open(videoStatus.final_video_url || videoStatus.jobs.find((j: any) => j.status === 'COMPLETED').video_url, "_blank");
+                                  window.open(videoStatus.final_video_url, "_blank");
                                 }
                               }}
                             >
@@ -386,11 +404,35 @@ export default function ProjectDetailsPage() {
                       <AlertCircle size={20} />
                     </div>
                     <div>
-                      <h4 className="text-sm font-semibold text-amber-200">Video File Not Generated</h4>
+                      <h4 className="text-sm font-semibold text-amber-200">
+                        {videoStatus?.completed_shots > 0 && videoStatus?.failed_shots === 0
+                          ? "Video Stitching Failed"
+                          : videoStatus?.completed_shots > 0
+                            ? `Partial Failure (${videoStatus.completed_shots}/${videoStatus.total_shots} Shots Ready, Final Video Not Stitched)`
+                            : "Video File Not Generated"}
+                      </h4>
                       <p className="text-xs text-gray-400">
-                        {videoStatus?.jobs?.find((j: any) => j.error_message)?.error_message ||
+                        {videoStatus?.error_message ||
+                          videoStatus?.jobs?.find((j: any) => j.error_message)?.error_message ||
                           "Video rendering did not output a stitched file, but all cinematic prompts and scene plans for this project are fully available below."}
                       </p>
+                      {videoStatus?.jobs?.some((j: any) => j.status === 'COMPLETED' && j.video_url) && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {videoStatus.jobs
+                            .filter((j: any) => j.status === 'COMPLETED' && j.video_url)
+                            .map((j: any) => (
+                              <a
+                                key={j.job_id}
+                                href={j.video_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="text-[11px] px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-blue-300 transition"
+                              >
+                                Shot {j.sequence_number} Clip
+                              </a>
+                            ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -469,12 +511,18 @@ export default function ProjectDetailsPage() {
               </div>
               <div className="text-center">
                 <h2 className="text-2xl font-bold bg-gradient-to-r from-blue-500 to-purple-500 bg-clip-text text-transparent mb-2">
-                  {videoStatus?.completed_shots > 0 && videoStatus?.completed_shots === videoStatus?.total_shots && !videoStatus?.final_video_url
+                  {videoStatus?.status === 'IN_PROGRESS' &&
+                  videoStatus?.completed_shots > 0 &&
+                  (videoStatus?.completed_shots + (videoStatus?.failed_shots || 0)) === videoStatus?.total_shots &&
+                  !videoStatus?.final_video_url
                     ? "Stitching your final video..."
                     : `Generating video shots (${videoStatus?.completed_shots || 0}/${videoStatus?.total_shots || 0} completed)...`}
                 </h2>
                 <p className="text-gray-400 text-sm">
-                  {videoStatus?.completed_shots > 0 && videoStatus?.completed_shots === videoStatus?.total_shots && !videoStatus?.final_video_url
+                  {videoStatus?.status === 'IN_PROGRESS' &&
+                  videoStatus?.completed_shots > 0 &&
+                  (videoStatus?.completed_shots + (videoStatus?.failed_shots || 0)) === videoStatus?.total_shots &&
+                  !videoStatus?.final_video_url
                     ? "FFmpeg is merging all generated scenes into a final continuous video."
                     : "Our multi-agent system is working on your project."}
                 </p>

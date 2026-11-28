@@ -48,6 +48,10 @@ class Settings(BaseSettings):
     video_generation_concurrency_limit: int = Field(3, validation_alias="VIDEO_GENERATION_CONCURRENCY_LIMIT")
     video_poll_interval_seconds: int = Field(10, validation_alias="VIDEO_POLL_INTERVAL_SECONDS")
     video_max_retries: int = Field(2, validation_alias="VIDEO_MAX_RETRIES")
+    video_submit_min_interval_seconds: float = Field(2.5, validation_alias="VIDEO_SUBMIT_MIN_INTERVAL_SECONDS", ge=0.0)
+    video_submit_max_retries: int = Field(4, validation_alias="VIDEO_SUBMIT_MAX_RETRIES", ge=0)
+    video_submit_backoff_base_seconds: float = Field(15.0, validation_alias="VIDEO_SUBMIT_BACKOFF_BASE_SECONDS", ge=0.0)
+    video_submit_backoff_max_seconds: float = Field(60.0, validation_alias="VIDEO_SUBMIT_BACKOFF_MAX_SECONDS", ge=0.0)
 
     # Veo 3.1 Lite / Google GenAI Config
     video_provider: str = Field("veo", validation_alias="VIDEO_PROVIDER")

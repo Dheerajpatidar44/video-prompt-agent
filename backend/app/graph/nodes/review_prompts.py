@@ -23,11 +23,18 @@ async def review_prompts(state: AgentState) -> AgentState:
     original_script = state.get("original_script", "")
     selected_tool = state.get("selected_tool", "Veo")
 
+    if state.get("status") == AgentStatus.ERROR or state.get("error"):
+        return {
+            **state,
+            "status": AgentStatus.ERROR,
+        }
+
     if not spec or not scene_plan or not prompt_set:
         logger.error("review_prompts: missing spec, scene_plan, or prompt_set in state.")
         return {
             **state,
-            "status": AgentStatus.REVIEWING,
+            "status": AgentStatus.ERROR,
+            "error": "Missing video specification, scene plan, or prompts for review.",
         }
 
     # Run all deterministic QA checks

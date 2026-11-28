@@ -311,6 +311,7 @@ async def submit_answers(thread_id: str, request: SubmitAnswersRequest):
     return {
         "status": final_state.get("status"),
         "gaps": _gaps_summary(final_state.get("gaps", [])),
+        "error": final_state.get("error"),
     }
 
 

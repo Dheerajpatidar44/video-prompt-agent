@@ -5,7 +5,7 @@ All functions accept/return VideoJob Pydantic models.
 """
 import logging
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, UTC
 
 from app.db.database import get_db
 from app.schemas.video_job import VideoJob, VideoJobStatus
@@ -183,21 +183,23 @@ def update_project_status(project_id: str, status: str) -> None:
         conn.close()
 
 
-def try_claim_video_generation(project_id: str) -> Optional[str]:
+def try_claim_video_generation(project_id: str, allow_completed: bool = False) -> Optional[str]:
     """Atomically claim video generation lock in SQLite across workers.
 
     Returns:
       - 'CLAIMED' if this caller transitioned the project into GENERATING_VIDEOS.
-      - Existing status string if the project is already GENERATING_VIDEOS or COMPLETED.
+      - Existing status string if the project is already GENERATING_VIDEOS (or COMPLETED
+        unless ``allow_completed=True`` for retrying failed shots).
       - None if no row exists in the projects table.
     """
     conn = get_db()
     try:
+        blocked = "('GENERATING_VIDEOS')" if allow_completed else "('GENERATING_VIDEOS', 'COMPLETED')"
         cur = conn.execute(
-            """
+            f"""
             UPDATE projects
             SET status = 'GENERATING_VIDEOS', updated_at = CURRENT_TIMESTAMP
-            WHERE id = ? AND status NOT IN ('GENERATING_VIDEOS', 'COMPLETED')
+            WHERE id = ? AND status NOT IN {blocked}
             """,
             (project_id,),
         )
@@ -220,6 +222,124 @@ def delete_failed_jobs_for_project(project_id: str) -> int:
             "DELETE FROM video_jobs WHERE project_id = ? AND status = ?",
             (project_id, VideoJobStatus.FAILED.value),
         )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def delete_jobs_by_ids(job_ids: list[str]) -> int:
+    """Delete specific video_jobs rows by ID (e.g. superseded FAILED jobs on retry)."""
+    if not job_ids:
+        return 0
+    placeholders = ",".join("?" for _ in job_ids)
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            f"DELETE FROM video_jobs WHERE job_id IN ({placeholders})",
+            tuple(job_ids),
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def clear_project_final_video_url(project_id: str) -> None:
+    """Clear final_video_url so a project can be re-stitched after retrying failed shots."""
+    conn = get_db()
+    try:
+        conn.execute(
+            "UPDATE projects SET final_video_url = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (project_id,),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def delete_jobs_for_project(project_id: str) -> int:
+    """Delete all video jobs associated with a project."""
+    conn = get_db()
+    try:
+        cur = conn.execute(
+            "DELETE FROM video_jobs WHERE project_id = ?",
+            (project_id,),
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
+def fail_orphaned_queued_jobs(
+    error_message: str = "Interrupted before provider submission (server restarted). Click Retry to resume.",
+) -> int:
+    """Mark unsubmitted QUEUED/RETRYING jobs from prior server runs as FAILED.
+
+    Run once on startup before background polling begins so interrupted projects
+    surface a clean retryable state instead of hanging indefinitely in QUEUED.
+    """
+    now_iso = datetime.now(UTC).isoformat()
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            """
+            SELECT job_id, project_id
+            FROM video_jobs
+            WHERE status IN (?, ?)
+              AND (external_job_id IS NULL OR external_job_id = '')
+            """,
+            (VideoJobStatus.QUEUED.value, VideoJobStatus.RETRYING.value),
+        ).fetchall()
+
+        if not rows:
+            return 0
+
+        affected_projects = {r["project_id"] for r in rows}
+        cur = conn.execute(
+            """
+            UPDATE video_jobs
+            SET status = ?, error_message = ?, completed_at = ?
+            WHERE status IN (?, ?)
+              AND (external_job_id IS NULL OR external_job_id = '')
+            """,
+            (
+                VideoJobStatus.FAILED.value,
+                error_message,
+                now_iso,
+                VideoJobStatus.QUEUED.value,
+                VideoJobStatus.RETRYING.value,
+            ),
+        )
+
+        # If an affected project now has zero remaining non-terminal jobs and no
+        # final stitched video, move it out of GENERATING_VIDEOS into FAILED.
+        for pid in affected_projects:
+            remaining = conn.execute(
+                """
+                SELECT COUNT(*) AS cnt
+                FROM video_jobs
+                WHERE project_id = ? AND status IN (?, ?, ?, ?)
+                """,
+                (
+                    pid,
+                    VideoJobStatus.QUEUED.value,
+                    VideoJobStatus.SUBMITTED.value,
+                    VideoJobStatus.PROCESSING.value,
+                    VideoJobStatus.RETRYING.value,
+                ),
+            ).fetchone()["cnt"]
+            if remaining == 0:
+                conn.execute(
+                    """
+                    UPDATE projects
+                    SET status = 'FAILED', updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND status = 'GENERATING_VIDEOS' AND final_video_url IS NULL
+                    """,
+                    (pid,),
+                )
+
         conn.commit()
         return cur.rowcount
     finally:

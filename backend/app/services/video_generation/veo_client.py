@@ -9,6 +9,7 @@ import math
 import os
 from typing import Optional, Any
 
+import httpx
 from google import genai
 from google.genai import types
 
@@ -21,6 +22,33 @@ from app.services.video_generation.cost import billed_seconds, estimate_clip_cos
 from app.utils.aspect_ratio import VEO_SUPPORTED_ASPECT_RATIOS, normalize_aspect_ratio
 
 logger = logging.getLogger(__name__)
+
+
+_PERMANENT_SUBMIT_TERMS = (
+    "401",
+    "403",
+    "permission_denied",
+    "unauthenticated",
+    "authentication failed",
+    "400",
+    "invalid_argument",
+)
+
+_TRANSIENT_SUBMIT_TERMS = (
+    "429",
+    "resource_exhausted",
+    "rate limit",
+    "too many requests",
+    "quota",
+    "500",
+    "502",
+    "503",
+    "504",
+    "unavailable",
+    "internal",
+    "timeout",
+    "timed out",
+)
 
 
 class VeoClient(VideoGenerationClient):
@@ -129,8 +157,11 @@ class VeoClient(VideoGenerationClient):
         # 2. Aspect ratio
         aspect = self._normalize_aspect_ratio(aspect_ratio)
 
-        # 3. Token guard
-        estimated_tokens = math.ceil(len(prompt_text) / 4)
+        # 3. Token guard (include negative prompt if appended to request)
+        combined_text = prompt_text
+        if negative_prompt and self.negative_prompt_mode == "append":
+            combined_text = f"{prompt_text}\n{negative_prompt}"
+        estimated_tokens = math.ceil(len(combined_text) / 4)
         if estimated_tokens > self.max_prompt_tokens:
             raise PermanentVideoError(
                 f"Prompt is about {estimated_tokens} tokens; Veo accepts at most 1,024. Shorten the prompt."
@@ -149,6 +180,8 @@ class VeoClient(VideoGenerationClient):
             config_kwargs["negative_prompt"] = negative_prompt
 
         # 5. Process reference / keyframe images
+        # Veo 3.1 treats `image` (I2V first frame) and `config.reference_images`
+        # (reference-to-video) as mutually exclusive: never mix both in one call.
         ref_items_to_load = []
         if reference_assets:
             ref_items_to_load = reference_assets[:3]
@@ -157,34 +190,44 @@ class VeoClient(VideoGenerationClient):
         elif reference_image_url:
             ref_items_to_load = [{"path": reference_image_url, "role": "CHARACTER"}]
 
-        first_frame_image = None
-        additional_ref_objects = []
-
+        loaded_items: list[tuple[str, types.Image]] = []
         for item in ref_items_to_load:
             path = item.get("path")
             role = (item.get("role") or "").upper()
             if path:
                 img_obj = await self._load_reference_image(path)
                 if img_obj:
-                    # The first image (e.g. opening keyframe) becomes the primary I2V starting frame
-                    if first_frame_image is None:
-                        first_frame_image = img_obj
-                    elif hasattr(types, "VideoGenerationReferenceImage"):
-                        # Any subsequent images (if multi-asset) are wrapped as reference assets
-                        ref_type = "asset"
-                        try:
-                            ref_img_wrapper = types.VideoGenerationReferenceImage(
-                                image=img_obj,
-                                reference_type=ref_type,
-                            )
-                            additional_ref_objects.append(ref_img_wrapper)
-                        except Exception as wrap_err:
-                            logger.warning(f"Failed to wrap VideoGenerationReferenceImage: {wrap_err}")
+                    loaded_items.append((role, img_obj))
 
-        # If additional multi-reference objects were built, attach them directly into GenerateVideosConfig
+        first_frame_image = None
+        additional_ref_objects = []
+
+        has_keyframe = any(role == "MASTER_KEYFRAME" for role, _ in loaded_items)
+        if loaded_items:
+            if has_keyframe or len(loaded_items) == 1:
+                # Primary I2V mode: use keyframe (or single image) strictly as opening frame
+                keyframe_img = next((img for role, img in loaded_items if role == "MASTER_KEYFRAME"), None)
+                first_frame_image = keyframe_img or loaded_items[0][1]
+            elif hasattr(types, "VideoGenerationReferenceImage"):
+                # Multi-asset reference-to-video mode (without `image`)
+                for _, img_obj in loaded_items[:3]:
+                    try:
+                        additional_ref_objects.append(
+                            types.VideoGenerationReferenceImage(
+                                image=img_obj,
+                                reference_type="asset",
+                            )
+                        )
+                    except Exception as wrap_err:
+                        logger.warning(f"Failed to wrap VideoGenerationReferenceImage: {wrap_err}")
+                if not additional_ref_objects:
+                    first_frame_image = loaded_items[0][1]
+            else:
+                first_frame_image = loaded_items[0][1]
+
         if additional_ref_objects:
             config_kwargs["reference_images"] = additional_ref_objects
-            logger.info(f"Veo Multi-Reference enabled: attached {len(additional_ref_objects)} extra reference image(s) to config")
+            logger.info(f"Veo Multi-Reference enabled: attached {len(additional_ref_objects)} reference image(s) to config")
 
         config = types.GenerateVideosConfig(**config_kwargs)
 
@@ -210,11 +253,18 @@ class VeoClient(VideoGenerationClient):
                 )
         except Exception as exc:
             exc_str = str(exc)
-            if any(k in exc_str for k in ("401", "403", "PERMISSION_DENIED", "Authentication failed")):
-                raise PermanentVideoError(f"Authentication/permission error: {exc}") from exc
-            if any(k in exc_str for k in ("429", "RESOURCE_EXHAUSTED", "Rate limited")):
-                raise TransientVideoError(f"Rate limited / Quota exhausted: {exc}") from exc
-            raise PermanentVideoError(f"Failed to submit Veo job: {exc}") from exc
+            if self._api_key:
+                exc_str = exc_str.replace(self._api_key, "[REDACTED]")
+            lower = exc_str.lower()
+
+            if any(term in lower for term in _PERMANENT_SUBMIT_TERMS):
+                raise PermanentVideoError(f"Authentication/permission error: {exc_str}") from exc
+            if isinstance(
+                exc,
+                (TimeoutError, asyncio.TimeoutError, ConnectionError, httpx.TimeoutException),
+            ) or any(term in lower for term in _TRANSIENT_SUBMIT_TERMS):
+                raise TransientVideoError(f"Rate limited / transient error: {exc_str}") from exc
+            raise PermanentVideoError(f"Failed to submit Veo job: {exc_str}") from exc
 
         operation_name = getattr(operation, "name", None)
         if not operation_name:
@@ -331,9 +381,59 @@ class VeoClient(VideoGenerationClient):
             "retryable": False,
         }
 
+    async def _download_http_uri(self, uri: str) -> bytes:
+        """Download generated video bytes from an HTTPS/HTTP URI returned by Veo."""
+        import httpx
+        from urllib.parse import urlparse
+
+        parsed = urlparse(uri)
+        is_google_host = (parsed.hostname or "").endswith("googleapis.com")
+        headers: dict[str, str] = {}
+        try:
+            async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as http_client:
+                resp = await http_client.get(uri)
+                if resp.status_code in (401, 403) and is_google_host and self._api_key:
+                    headers["x-goog-api-key"] = self._api_key
+                    resp = await http_client.get(uri, headers=headers)
+                resp.raise_for_status()
+                if not resp.content:
+                    raise PermanentVideoError(f"Empty video payload from URI: {uri}")
+                return resp.content
+        except PermanentVideoError:
+            raise
+        except Exception as exc:
+            # Fallback to Google GenAI Files API download if available on client
+            files_api = getattr(getattr(self._client, "aio", None), "files", None) or getattr(self._client, "files", None)
+            if files_api and hasattr(files_api, "download"):
+                try:
+                    if hasattr(getattr(self._client, "aio", None), "files"):
+                        data = await self._client.aio.files.download(file=uri)
+                    else:
+                        data = await asyncio.to_thread(self._client.files.download, file=uri)
+                    if data:
+                        return bytes(data)
+                except Exception:
+                    pass
+            # Scrub api key defensively if ever echoed in HTTP exception details
+            err_msg = str(exc)
+            if self._api_key:
+                err_msg = err_msg.replace(self._api_key, "[REDACTED]")
+            raise PermanentVideoError(f"Failed to download video from URI {uri}: {err_msg}") from exc
+
     async def download_video(self, video_url: str) -> bytes:
+        if not video_url:
+            raise PermanentVideoError("Invalid video URL or operation id: must not be empty")
+
         if video_url in self._video_cache:
             return self._video_cache.pop(video_url)
+
+        if video_url.startswith(("http://", "https://")):
+            return await self._download_http_uri(video_url)
+
+        if video_url.startswith("gs://"):
+            raise PermanentVideoError(
+                f"Direct GCS URI download is unsupported without inline bytes or HTTPS URL: {video_url}"
+            )
 
         op_arg = self._build_operation_ref(video_url)
 
@@ -345,10 +445,23 @@ class VeoClient(VideoGenerationClient):
             res = getattr(op, "response", None) or getattr(op, "result", None)
             videos = getattr(res, "generated_videos", None) if res else None
             if videos and len(videos) > 0:
-                v_bytes = getattr(videos[0].video, "video_bytes", None)
+                vid_obj = getattr(videos[0], "video", None)
+                v_bytes = getattr(vid_obj, "video_bytes", None) if vid_obj else None
                 if v_bytes:
                     return v_bytes
+                uri = getattr(vid_obj, "uri", None) if vid_obj else None
+                if uri and uri.startswith(("http://", "https://")):
+                    return await self._download_http_uri(uri)
+                if uri and uri.startswith("gs://"):
+                    raise PermanentVideoError(
+                        f"Direct GCS URI download is unsupported without inline bytes or HTTPS URL: {uri}"
+                    )
+        except PermanentVideoError:
+            raise
         except Exception as exc:
-            raise PermanentVideoError(f"Failed to retrieve video bytes for {video_url}: {exc}") from exc
+            err_msg = str(exc)
+            if self._api_key:
+                err_msg = err_msg.replace(self._api_key, "[REDACTED]")
+            raise PermanentVideoError(f"Failed to retrieve video bytes for {video_url}: {err_msg}") from exc
 
         raise PermanentVideoError(f"No video bytes found for operation: {video_url}")

@@ -63,7 +63,12 @@ export function useVideoAgent() {
     const { threadId, status, videoStatus, finalVideoUrl } = state;
     if (!threadId) return;
     if (["IDLE", "WAITING_FOR_USER", "PROMPTS_READY", "ERROR"].includes(status)) return;
-    if ((status === "COMPLETED" || status === "GENERATING_VIDEOS") && (videoStatus === "COMPLETED" || videoStatus === "PARTIAL_FAILURE") && finalVideoUrl) return;
+    const isTerminalVideoState =
+      videoStatus === "FAILED" ||
+      videoStatus === "COMPLETED" ||
+      videoStatus === "PARTIAL_FAILURE" ||
+      !!finalVideoUrl;
+    if ((status === "COMPLETED" || status === "GENERATING_VIDEOS") && isTerminalVideoState) return;
 
     const interval = setInterval(async () => {
       try {
@@ -74,6 +79,8 @@ export function useVideoAgent() {
           } else if (qData.status === "PROMPTS_READY") {
             const assets = await loadPhase1Assets(threadId);
             setPartial({ ...assets, status: "PROMPTS_READY" });
+          } else if (qData.status === "ERROR") {
+            setPartial({ status: "ERROR", error: "Script analysis encountered an error." });
           } else if (["PLANNING", "GENERATING", "REVIEWING", "GENERATING_VIDEOS", "COMPLETED"].includes(qData.status)) {
             setPartial({ status: qData.status as AgentStatus });
           }
@@ -126,13 +133,20 @@ export function useVideoAgent() {
           }
         }
 
-        if ((status === "COMPLETED" || status === "GENERATING_VIDEOS") && (!finalVideoUrl || videoStatus !== "COMPLETED")) {
+        if ((status === "COMPLETED" || status === "GENERATING_VIDEOS") && (!finalVideoUrl || (videoStatus !== "COMPLETED" && videoStatus !== "FAILED" && videoStatus !== "PARTIAL_FAILURE"))) {
           try {
             const vData = await ApiClient.getVideoStatus(threadId);
             if (vData.status === "NOT_STARTED") {
               return;
             }
-            const isStitching = (vData.completed_shots > 0 && vData.completed_shots === vData.total_shots && !vData.final_video_url) || vData.status === "STITCHING";
+            const allTerminal =
+              vData.total_shots > 0 &&
+              vData.completed_shots + (vData.failed_shots || 0) === vData.total_shots;
+            const isStitching =
+              (vData.status === "IN_PROGRESS" || vData.status === "STITCHING") &&
+              vData.completed_shots > 0 &&
+              allTerminal &&
+              !vData.final_video_url;
 
             if (vData.final_video_url) {
               const imgData = await ApiClient.getProjectImages(threadId).catch(() => null);
@@ -142,24 +156,21 @@ export function useVideoAgent() {
                 completedShots: vData.completed_shots,
                 totalShots: vData.total_shots,
                 isStitching: false,
+                error: vData.status === "PARTIAL_FAILURE" ? (vData.error_message || "Some shots failed during generation.") : null,
                 ...(imgData && { projectImages: imgData }),
               });
-            } else if (vData.status === "COMPLETED" || vData.status === "PARTIAL_FAILURE") {
-              const fallbackUrl = vData.jobs?.find((j: any) => j.status === "COMPLETED")?.video_url;
+            } else if (vData.status === "FAILED" || vData.status === "PARTIAL_FAILURE" || vData.status === "COMPLETED") {
+              const failedJobError = vData.jobs?.find((j: any) => j.error_message)?.error_message;
               const imgData = await ApiClient.getProjectImages(threadId).catch(() => null);
-              if (fallbackUrl) {
-                setPartial({
-                  videoStatus: vData.status,
-                  finalVideoUrl: fallbackUrl,
-                  completedShots: vData.completed_shots,
-                  totalShots: vData.total_shots,
-                  isStitching: false,
-                  ...(imgData && { projectImages: imgData }),
-                });
-              } else if (vData.completed_shots === 0 && vData.failed_shots === vData.total_shots) {
-                // All failed
-                setPartial({ videoStatus: "FAILED", finalVideoUrl: null, isStitching: false });
-              }
+              setPartial({
+                videoStatus: "FAILED",
+                finalVideoUrl: null,
+                completedShots: vData.completed_shots,
+                totalShots: vData.total_shots,
+                isStitching: false,
+                error: vData.error_message || failedJobError || "Video generation or stitching failed.",
+                ...(imgData && { projectImages: imgData }),
+              });
             } else {
               setPartial({
                 videoStatus: isStitching ? "STITCHING" : vData.status,
@@ -193,6 +204,16 @@ export function useVideoAgent() {
       const res = await ApiClient.analyzeScript(file, text, tool, characterImages, productImages, brandImages);
 
       let finalStatus = res.status as AgentStatus;
+      if (finalStatus === "ERROR" || res.error) {
+        setPartial({
+          threadId: res.thread_id,
+          status: "ERROR",
+          error: res.error || "Failed to analyze script",
+          isSubmitting: false,
+        });
+        return res;
+      }
+
       let loadedQuestions: Question[] = [];
       let scenePlan = null;
       let prompts = null;
@@ -243,6 +264,15 @@ export function useVideoAgent() {
       const res = await ApiClient.submitAnswers(state.threadId, formattedAnswers);
 
       let finalStatus = res.status as AgentStatus;
+      if (finalStatus === "ERROR" || res.error) {
+        setPartial({
+          status: "ERROR",
+          error: res.error || "Failed to generate scene plan and prompts",
+          isSubmitting: false,
+        });
+        return res;
+      }
+
       let scenePlan = null;
       let prompts = null;
       let reviewReport = null;

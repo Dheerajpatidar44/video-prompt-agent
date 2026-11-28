@@ -54,8 +54,11 @@ def create_project(req: CreateProjectRequest):
 @router.delete("/{project_id}")
 def delete_project(project_id: str):
     conn = get_db()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-    conn.commit()
-    conn.close()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM video_jobs WHERE project_id = ?", (project_id,))
+        cursor.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        conn.commit()
+    finally:
+        conn.close()
     return {"message": "Project deleted"}

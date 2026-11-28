@@ -11,7 +11,7 @@ from app.graph.nodes.build_video_spec import build_video_spec
 from app.graph.nodes.generate_scenes_and_prompts import generate_scenes_and_prompts
 from app.graph.nodes.review_prompts import review_prompts
 from app.graph.nodes.generate_images import generate_images
-from app.graph.routing import route_after_analysis
+from app.graph.routing import route_after_analysis, route_after_generation
 
 
 # Every custom Enum/BaseModel class found across app/schemas/*.py
@@ -143,8 +143,22 @@ def build_graph(memory=None):
 
     # Generation: spec → combined scene+prompt generation → review → generate_images → END
     # Video generation is triggered explicitly by the user from the frontend via POST /projects/{id}/generate-video
-    workflow.add_edge("build_video_spec", "generate")
-    workflow.add_edge("generate", "review_prompts")
+    workflow.add_conditional_edges(
+        "build_video_spec",
+        route_after_generation,
+        {
+            "PROCEED": "generate",
+            "STOP_ON_ERROR": END,
+        },
+    )
+    workflow.add_conditional_edges(
+        "generate",
+        route_after_generation,
+        {
+            "PROCEED": "review_prompts",
+            "STOP_ON_ERROR": END,
+        },
+    )
     workflow.add_edge("review_prompts", "generate_images")
     workflow.add_edge("generate_images", END)
 

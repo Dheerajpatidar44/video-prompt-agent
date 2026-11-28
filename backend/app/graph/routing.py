@@ -30,3 +30,10 @@ def route_after_analysis(state: AgentState) -> str:
     if status == AgentStatus.WAITING_FOR_USER:
         return "WAIT_FOR_ANSWERS"
     return "PROCEED"
+
+
+def route_after_generation(state: AgentState) -> str:
+    """Stop the graph cleanly if an upstream generation node returned ERROR."""
+    if state.get("status") == AgentStatus.ERROR or bool(state.get("error")):
+        return "STOP_ON_ERROR"
+    return "PROCEED"

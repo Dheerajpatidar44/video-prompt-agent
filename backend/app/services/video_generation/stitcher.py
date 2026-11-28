@@ -93,7 +93,7 @@ def _trim_clip(input_path: str, output_path: str, duration_seconds: float) -> su
         "ffmpeg", "-y",
         "-i", input_path,
         "-t", f"{duration_seconds:.2f}",
-        "-c:v", "libx264", "-preset", "veryfast",
+        "-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p",
         "-c:a", "aac",
         output_path,
     ]
@@ -109,7 +109,7 @@ def _build_concat_cmd(concat_list_path: str, output_path: str, reencode: bool) -
         "-i", concat_list_path,
     ]
     if reencode:
-        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-c:a", "aac"]
+        cmd += ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-c:a", "aac"]
     else:
         cmd += ["-c", "copy"]
     cmd += ["-movflags", "+faststart", output_path]
@@ -173,7 +173,7 @@ async def stitch_project_videos(project_id: str) -> str | None:
                     else:
                         # Fallback without ffprobe: compare against Veo billing tiers
                         from app.services.video_generation.cost import billed_seconds
-                        billed = billed_seconds(int(job.duration_seconds))
+                        billed = billed_seconds(float(job.duration_seconds))
                         if job.duration_seconds < billed:
                             needs_trim = True
 
@@ -235,13 +235,13 @@ async def stitch_project_videos(project_id: str) -> str | None:
             logger.info(f"Running ffmpeg (re-encode): {' '.join(cmd)}")
             proc = await asyncio.to_thread(_run_ffmpeg, cmd)
 
-            if proc.returncode != 0:
-                err_text = proc.stderr.decode(errors="replace")
-                logger.error(f"ffmpeg failed (rc={proc.returncode}): {err_text}")
-                raise StitchingError(
-                    f"ffmpeg concat failed with return code {proc.returncode}: "
-                    f"{err_text[-500:]}"
-                )
+        if proc.returncode != 0:
+            err_text = proc.stderr.decode(errors="replace")
+            logger.error(f"ffmpeg failed (rc={proc.returncode}): {err_text}")
+            raise StitchingError(
+                f"ffmpeg concat failed with return code {proc.returncode}: "
+                f"{err_text[-500:]}"
+            )
 
         # 4. Verify output file exists and is non-empty.
         if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:

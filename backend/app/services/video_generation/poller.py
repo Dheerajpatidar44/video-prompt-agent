@@ -13,6 +13,7 @@ from app.db import video_jobs_repository as repo
 from app.schemas.video_job import VideoJobStatus
 from app.services.video_generation.client_factory import get_video_client
 from app.services.video_generation.base_client import PermanentVideoError, TransientVideoError
+from app.services.video_generation.rate_limiter import compute_submit_backoff, get_video_submit_limiter
 from app.services.video_generation.storage import store_video, VideoStorageError
 from app.services.video_generation.stitcher import stitch_project_videos
 from app.utils.aspect_ratio import VEO_SUPPORTED_ASPECT_RATIOS, get_spec_aspect_ratio
@@ -23,6 +24,9 @@ _job_error_counts: dict[str, int] = {}
 
 # Tracks how many image-regen retries have been spent per job_id.
 _image_regen_counts: dict[str, int] = {}
+
+# In-process lock preventing duplicate concurrent stitch runs per project.
+_stitching_projects: set[str] = set()
 
 # Error substrings that indicate Veo rejected the image due to safety or policy
 # (e.g. Code 15236754 - celebrity likeness / usage guidelines).
@@ -164,25 +168,43 @@ async def _handle_failed_job(job, result: dict, client) -> None:
                 for item in shot_items if item.get("path")
             ][:3]
 
-            ext_job_id = await client.submit_job(
-                prompt_text=prompt.prompt_text,
-                duration_seconds=prompt.duration_seconds,
-                aspect_ratio=get_spec_aspect_ratio(
-                    spec,
-                    prompt_set,
-                    fallback=settings.default_aspect_ratio,
-                    allowed=VEO_SUPPORTED_ASPECT_RATIOS,
-                ),
-                negative_prompt=prompt.negative_constraints,
-                reference_assets=structured_assets if structured_assets else None,
-            )
+            limiter = get_video_submit_limiter()
+            if not getattr(settings, "use_mock_video_api", False):
+                await limiter.wait_for_slot(
+                    getattr(settings, "video_submit_min_interval_seconds", 2.5)
+                )
+
+            try:
+                ext_job_id = await client.submit_job(
+                    prompt_text=prompt.prompt_text,
+                    duration_seconds=prompt.duration_seconds,
+                    aspect_ratio=get_spec_aspect_ratio(
+                        spec,
+                        prompt_set,
+                        fallback=settings.default_aspect_ratio,
+                        allowed=VEO_SUPPORTED_ASPECT_RATIOS,
+                    ),
+                    negative_prompt=prompt.negative_constraints,
+                    reference_assets=structured_assets if structured_assets else None,
+                )
+            except TransientVideoError as transient_exc:
+                _, is_quota, delay = compute_submit_backoff(
+                    transient_exc,
+                    new_count - 1,
+                    base_seconds=getattr(settings, "video_submit_backoff_base_seconds", 15.0),
+                    max_seconds=getattr(settings, "video_submit_backoff_max_seconds", 60.0),
+                )
+                if is_quota and delay > 0.0:
+                    limiter.extend_cooldown(delay)
+                raise
             
             repo.update_job_status(
                 job.job_id,
                 VideoJobStatus.SUBMITTED,
                 external_job_id=ext_job_id,
                 error_message=error_msg,
-                retry_count=new_count
+                retry_count=new_count,
+                submitted_at=datetime.now(UTC),
             )
             logger.info(f"Successfully resubmitted job {job.job_id} -> {ext_job_id}")
             
@@ -293,6 +315,12 @@ async def _regenerate_image_and_resubmit(job, error_msg: str, client, new_img_co
             "reused": False,
         }]
 
+        limiter = get_video_submit_limiter()
+        if not getattr(settings, "use_mock_video_api", False):
+            await limiter.wait_for_slot(
+                getattr(settings, "video_submit_min_interval_seconds", 2.5)
+            )
+
         ext_job_id = await client.submit_job(
             prompt_text=prompt.prompt_text,
             duration_seconds=prompt.duration_seconds,
@@ -328,6 +356,8 @@ async def _regenerate_image_and_resubmit(job, error_msg: str, client, new_img_co
 
 async def _check_and_trigger_stitching(project_id: str) -> None:
     """Check if all jobs are terminal. If so, trigger stitching."""
+    if project_id in _stitching_projects:
+        return
     # We rely on the project's final_video_url as our "already stitched" flag.
     if repo.get_project_final_video_url(project_id):
         return
@@ -351,20 +381,18 @@ async def _check_and_trigger_stitching(project_id: str) -> None:
                 logger.warning(f"Could not update project {project_id} status to FAILED: {exc}")
         return
 
-    # All jobs terminal. Trigger stitch.
-    # To prevent multiple concurrent stitches for the same project if polls race,
-    # we synchronously mark a dummy URL (or we just let the DB handle it cleanly).
-    # Since this poller runs sequentially in one task loop, races are minimized.
-    
-    # We'll mark it as IN_PROGRESS_STITCHING implicitly by firing the stitcher task.
     logger.info(f"All jobs for project {project_id} reached terminal state. Triggering stitch.")
-    
+    _stitching_projects.add(project_id)
+
     try:
-        # We await it directly here because the poller loop is okay to block on stitching
-        # (or we could fire and forget, but awaiting prevents race conditions nicely)
-        # Note: In a heavy production system, stitching should be a background task.
-        # Since this phase avoids Celery, we'll await it but ensure it doesn't crash the poller.
-        await stitch_project_videos(project_id)
+        final_url = await stitch_project_videos(project_id)
+        if not final_url and not repo.get_project_final_video_url(project_id):
+            logger.error(f"Stitching produced no final video URL for project {project_id}. Marking FAILED.")
+            if hasattr(repo, "update_project_status"):
+                try:
+                    repo.update_project_status(project_id, "FAILED")
+                except Exception:
+                    pass
     except Exception as exc:
         logger.exception(f"Stitching failed for project {project_id}: {exc}")
         if hasattr(repo, "update_project_status"):
@@ -372,8 +400,8 @@ async def _check_and_trigger_stitching(project_id: str) -> None:
                 repo.update_project_status(project_id, "FAILED")
             except Exception:
                 pass
-        # The project stays with final_video_url = None, and API routes will
-        # report PARTIAL_FAILURE with no video.
+    finally:
+        _stitching_projects.discard(project_id)
 
 
 async def run_poller_loop() -> None:
@@ -397,26 +425,26 @@ async def run_poller_loop() -> None:
 
             # Group jobs by project so we can check stitching later
             active_projects = set()
+            limiter = get_video_submit_limiter()
 
             for job in jobs:
                 active_projects.add(job.project_id)
 
-                # QUEUED and RETRYING jobs are intentionally not resubmitted by the poller.
-                # Initial submissions are handled by the generate_videos node.
-                if job.status in (VideoJobStatus.QUEUED, VideoJobStatus.RETRYING):
-                    continue
+                # In-process queued submissions actively waiting through rate pacing / 429
+                # backoff are skipped from premature timeout until submitted or failed.
+                is_active_submission = (
+                    job.status == VideoJobStatus.QUEUED
+                    and job.job_id in limiter.active_job_ids
+                )
 
-                if job.status not in (VideoJobStatus.SUBMITTED, VideoJobStatus.PROCESSING):
-                    continue
-                    
-                if job.submitted_at:
+                if job.submitted_at and not is_active_submission:
                     now = datetime.now(UTC)
                     sub_at = job.submitted_at
                     if sub_at.tzinfo is None:
                         sub_at = sub_at.replace(tzinfo=UTC)
-                    
+
                     if (now - sub_at).total_seconds() > getattr(settings, "video_job_max_wait_seconds", 900):
-                        logger.error(f"Job {job.job_id} timed out waiting for provider.")
+                        logger.error(f"Job {job.job_id} ({job.status.value}) timed out waiting for completion.")
                         repo.update_job_status(
                             job.job_id,
                             VideoJobStatus.FAILED,
@@ -425,6 +453,13 @@ async def run_poller_loop() -> None:
                         )
                         _job_error_counts.pop(job.job_id, None)
                         continue
+
+                # QUEUED and RETRYING jobs are submitted by generate_videos (or marked failed on startup recovery).
+                if job.status in (VideoJobStatus.QUEUED, VideoJobStatus.RETRYING):
+                    continue
+
+                if job.status not in (VideoJobStatus.SUBMITTED, VideoJobStatus.PROCESSING):
+                    continue
 
                 if not job.external_job_id:
                     logger.warning(f"Job {job.job_id} is {job.status.value} but missing external_job_id.")
@@ -475,5 +510,4 @@ async def run_poller_loop() -> None:
             break
         except Exception as exc:
             logger.exception(f"Unexpected error in video poller loop: {exc}")
-        
-        await asyncio.sleep(interval)
+            await asyncio.sleep(interval)
